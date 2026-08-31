@@ -1,1 +1,0 @@
-let demo:string = "encode-utf8";
