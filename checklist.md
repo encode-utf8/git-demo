@@ -1,26 +1,12 @@
-﻿# 分支验收清单：feature/scaffold
+﻿# P1 工程初始化验收清单
 
-- 关联文档：`docs/parallel-dev-plan.md`、`docs/design.md`、`docs/plan.md`
+- 关联文档：`docs/design.md`、`docs/parallel-dev-plan.md`、`docs/plan.md`
+- 分支：`feature/scaffold`
 - 负责阶段：P1 工程初始化
 
-## 角色与目标
+## 验收项
 
-搭好可运行的 TS + Python 工程骨架，冻结共享类型、数据模型与 API 契约，为后续并行开发提供稳定底座。
-
-## 可修改范围
-
-- 仓库根目录工程配置、Next 应用目录
-- `data-service/`（仅 `/health`，不含 AkShare 业务）
-- 共享类型、mock 路由骨架、Drizzle schema、`.env.example`、dev 脚本
-
-## 禁止修改
-
-- 不写业务逻辑
-- 不实现 AkShare 具体抓取
-- 不提交任何真实密钥
-
-## 验收清单
-
+- [x] 已从 `main` 创建 `feature/scaffold` 分支
 - [x] Next.js + TypeScript 工程可 `pnpm dev` 启动
 - [x] Python FastAPI 侧车可启动，`/health` 返回 200
 - [x] `/api/health` 返回 200
@@ -31,10 +17,10 @@
 - [x] `lib/store` 提供内存版 stub
 - [x] `.env.example` 存在，占位齐全，无真实密钥
 - [x] `.env` 已纳入 `.gitignore`
-- [x] 根目录 `demo copy.ts` 已删除或忽略
+- [x] 根目录 `demo copy.ts` 已删除
 - [x] `pnpm typecheck` 通过
 - [x] 代码注释与提交信息为中文
-- [x] 行情侧车使用专属 conda 环境 `stock-analysis`（Python 3.12）
+- [x] 已为行情侧车新建专属 conda 环境（Python 3.12）
 
 ## 验证命令
 
@@ -42,7 +28,9 @@
 pnpm typecheck
 pnpm dev
 curl http://127.0.0.1:3000/api/health
-cd data-service && uvicorn main:app --reload
+conda env create -n stock-analysis -f data-service/environment.yml
+conda activate stock-analysis
+uvicorn app.main:app --reload --app-dir data-service
 curl http://127.0.0.1:8000/health
 ```
 
@@ -51,4 +39,4 @@ curl http://127.0.0.1:8000/health
 - 完成日期：2026-08-31
 - 结果：全部验收项通过
 - 备注：全局 conda 启动器已修复（pyOpenSSL 23.2.0 -> 26.4.0），
-  `stock-analysis` 环境创建与 `conda run` 均验证通过。
+  `conda` 与 `conda run -n stock-analysis` 均正常。

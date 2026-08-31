@@ -1,0 +1,12 @@
+﻿# 行情数据侧车专属 conda 环境。
+# 创建命令：conda env create -n stock-analysis -f data-service/environment.yml
+name: stock-analysis
+channels:
+  - defaults
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - fastapi>=0.115
+      - "uvicorn[standard]>=0.30"
+      - pydantic-settings>=2.6
