@@ -77,7 +77,31 @@ def health() -> dict[str, str]:
 
 @app.get("/quote")
 def quote(code: str = Query(..., min_length=6, max_length=6)) -> dict:
-    """返回当前行情快照。"""
+    """返回当前行情快照。
+
+    标准响应契约（下一阶段冻结，后续替换数据源时不得破坏字段结构）：
+    {
+        "code": "600519",
+        "ts": "2026-09-01T00:00:00+00:00",
+        "price": 1700.0,
+        "change_pct": 0.71,
+        "open": 1688.0,
+        "high": 1710.0,
+        "low": 1680.0,
+        "prev_close": 1688.0,
+        "volume": 12345678,
+        "amount": 210000000000,
+        "turnover_rate": 0.42,
+        "pe": 32.5,
+        "pb": 10.2,
+        "market_cap": 2100000000000,
+        "float_cap": 1600000000000,
+        "source": "data-service",
+        "fetched_at": "2026-09-01T00:00:00+00:00"
+    }
+
+    当前为确定性演示数据，不依赖 AkShare。
+    """
     now = datetime.now(timezone.utc)
     day_key = now.date().isoformat()
     rng = _random(_seed(f"quote:{code}:{day_key}"))
@@ -117,7 +141,19 @@ def kline(
     adjust: AdjustType = Query("qfq"),
     limit: int = Query(30, ge=10, le=240),
 ) -> list[dict]:
-    """返回标准化 K 线数据。"""
+    """返回标准化 K 线数据。
+
+    查询参数：
+    - code：6 位股票代码
+    - period：minute | day | week | month
+    - adjust：qfq | hfq | none
+    - limit：10 到 240，默认 30
+
+    标准响应契约为数组，每个元素包含以下字段：
+    code, period, ts, open, high, low, close, volume, amount, adj_type
+
+    当前为确定性演示数据，不依赖 AkShare。
+    """
     today = _last_trading_day(datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0))
     dates: list[datetime] = []
 
