@@ -1,12 +1,16 @@
-// 资讯读取与外部搜索封装：Tavily 可用时调用，否则确定性回退并落库。
+// 资讯读取与外部搜索封装：Tavily 可用时真实调用，否则确定性回退并落库。
+// 资讯按 URL 或“标题 + 来源 + 发布时间”去重，并用 DeepSeek 逐条判定情绪与影响周期。
 import { cacheGetOrSet, cacheInvalidatePrefix } from "@/lib/cache";
 import { recordExternalCall } from "@/lib/observability";
+import { saveNewsSnapshot } from "@/lib/r2";
 import { store } from "@/lib/store";
 import type { NewsItem, NewsSentiment, Stock } from "@/lib/shared/types";
 
 const NEWS_TTL_MS = 5 * 60_000;
+const SHORT_IMPACT_DAYS = 7;
+const LONG_IMPACT_DAYS = 30;
 
-/** 生成短哈希，用于资讯去重标识。 */
+/** 生成稳定短哈希，用于资讯去重标识。 */
 function shortHash(input: string): string {
   let hash = 0;
   for (let index = 0; index < input.length; index += 1) {
@@ -15,22 +19,122 @@ function shortHash(input: string): string {
   return hash.toString(36);
 }
 
-/** 根据关键词给出简单情绪与影响周期。 */
+/** 从标题与标签中识别长期资讯，供异常影响周期回退使用。 */
+const LONG_TERM_HINTS = ["长期", "政策", "行业", "规划", "战略", "财报", "年报", "并购", "重组"];
+
+function isLongTerm(tags: string[]): boolean {
+  return tags.some((tag) => LONG_TERM_HINTS.some((hint) => tag.includes(hint)));
+}
+
+/** 校验情绪字段，非法值回退为中性。 */
+function normalizeSentiment(value: unknown): NewsSentiment {
+  return value === "positive" || value === "negative" || value === "neutral"
+    ? value
+    : "neutral";
+}
+
+/** 校验置信度并限制在 0 到 1 之间。 */
+function normalizeConfidence(value: unknown, fallback = 0.75): number {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return fallback;
+  }
+  return Math.min(1, Math.max(0, number));
+}
+
+/** 校验标签，非法值回退为空数组。 */
+function normalizeTags(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+/** 修正影响周期：短期异常回退 7 天，长期异常回退 30 天。 */
+function normalizeImpactDays(value: unknown, tags: string[]): number {
+  const longTerm = isLongTerm(tags);
+  const fallback = longTerm ? LONG_IMPACT_DAYS : SHORT_IMPACT_DAYS;
+  const number = Number(value);
+
+  if (!Number.isFinite(number) || number <= 0) {
+    return fallback;
+  }
+
+  if (longTerm) {
+    if (number < 14 || number > 365) {
+      return LONG_IMPACT_DAYS;
+    }
+    return Math.round(number);
+  }
+
+  if (number > 14) {
+    return SHORT_IMPACT_DAYS;
+  }
+  return Math.round(number);
+}
+
+/** 根据标题关键词给出本地确定性分类。 */
 function classifyTitle(title: string): {
   sentiment: NewsSentiment;
   impactDays: number;
   tags: string[];
 } {
-  const text = title;
-  const positive = /增长|预增|突破|中标|回购|签约|提升|利好|扭亏|创新高/.test(text);
-  const negative = /下滑|预亏|处罚|立案|减持|诉讼|风险|亏损|停产|下调/.test(text);
-  const longTerm = /政策|行业|规划|战略|财报|年报|半年报|并购|重组/.test(text);
+  const positive = /增长|预增|突破|中标|回购|签约|提升|利好|扭亏|创新高/.test(title);
+  const negative = /下滑|预亏|处罚|立案|减持|诉讼|风险|亏损|停产|下调/.test(title);
+  const longTerm = /政策|行业|规划|战略|财报|年报|并购|重组/.test(title);
 
   return {
     sentiment: positive && !negative ? "positive" : negative && !positive ? "negative" : "neutral",
-    impactDays: longTerm ? 30 : 7,
+    impactDays: longTerm ? LONG_IMPACT_DAYS : SHORT_IMPACT_DAYS,
     tags: longTerm ? ["长期", "重点观察"] : ["短期"],
   };
+}
+
+/** 从 URL 中提取可读来源；无法识别时返回 Tavily。 */
+function extractSource(url?: string): string {
+  if (!url) {
+    return "Tavily";
+  }
+  try {
+    const hostname = new URL(url).hostname.replace(/^www\./, "");
+    return hostname || "Tavily";
+  } catch {
+    return "Tavily";
+  }
+}
+
+/** 将可能为空或非法的日期转为可用的 ISO 字符串。 */
+function toIsoDate(value: string | undefined, fallback: Date): string {
+  if (!value) {
+    return fallback.toISOString();
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? fallback.toISOString() : parsed.toISOString();
+}
+
+/** 资讯去重键：优先 URL，否则使用“标题 + 来源 + 发布时间”。 */
+function dedupeKey(item: Pick<NewsItem, "url" | "title" | "source" | "published_at">): string {
+  const url = item.url.trim();
+  if (url) {
+    return `url:${url}`;
+  }
+  return `meta:${shortHash(`${item.title.trim()}|${item.source.trim()}|${item.published_at}`)}`;
+}
+
+/** 对资讯数组按 URL 或标题 + 来源 + 发布时间去重。 */
+function dedupeNewsItems(items: NewsItem[]): NewsItem[] {
+  const seen = new Map<string, NewsItem>();
+  for (const item of items) {
+    const key = dedupeKey(item);
+    if (!seen.has(key)) {
+      seen.set(key, item);
+    }
+  }
+  return Array.from(seen.values());
 }
 
 /** 生成确定性资讯，保证无外部网络时也有可展示内容。 */
@@ -64,7 +168,12 @@ function buildDeterministicNews(code: string, stock: Stock): NewsItem[] {
     const publishedAt = new Date(now - index * 6 * 60 * 60_000).toISOString();
     const impactDays = classification.impactDays;
     return {
-      id: `news-${code}-${shortHash(item.title)}-${index}`,
+      id: `news-${code}-${shortHash(dedupeKey({
+        url: `https://example.com/news/${code}/${index + 1}`,
+        title: item.title,
+        source: item.source,
+        published_at: publishedAt,
+      }))}`,
       code,
       title: item.title,
       summary: item.summary,
@@ -83,7 +192,15 @@ function buildDeterministicNews(code: string, stock: Stock): NewsItem[] {
   });
 }
 
-/** 调用 Tavily 搜索；未配置密钥时不发起调用。 */
+interface TavilyResult {
+  title?: string;
+  url?: string;
+  content?: string;
+  score?: number;
+  published_date?: string;
+}
+
+/** 调用 Tavily 搜索；未配置密钥时返回 null。 */
 async function fetchNewsFromTavily(code: string, stock: Stock): Promise<NewsItem[] | null> {
   const apiKey = process.env.TAVILY_API_KEY;
   if (!apiKey || apiKey === "replace-me") {
@@ -101,7 +218,7 @@ async function fetchNewsFromTavily(code: string, stock: Stock): Promise<NewsItem
       },
       body: JSON.stringify({
         query: `${stock.name} ${code} 公告 业绩 行业 风险`,
-        max_results: 6,
+        max_results: 8,
         search_depth: "basic",
         include_answer: false,
       }),
@@ -114,40 +231,33 @@ async function fetchNewsFromTavily(code: string, stock: Stock): Promise<NewsItem
       return null;
     }
 
-    const payload = (await response.json()) as {
-      results?: Array<{
-        title?: string;
-        url?: string;
-        content?: string;
-        score?: number;
-        published_date?: string;
-      }>;
-    };
+    const payload = (await response.json()) as { results?: TavilyResult[] };
     recordExternalCall(true);
-    const now = Date.now();
     const results = payload.results ?? [];
     if (results.length === 0) {
       return [];
     }
 
-    return results.slice(0, 6).map((item, index) => {
-      const title = item.title ?? `${stock.name}相关资讯 ${index + 1}`;
+    const now = Date.now();
+    return results.slice(0, 8).map((item, index) => {
+      const title = item.title?.trim() || `${stock.name}相关资讯 ${index + 1}`;
+      const url = item.url?.trim() || `https://example.com/news/${code}/${index + 1}`;
+      const summary = (item.content ?? "未获取到正文摘要。").trim();
+      const publishedAt = toIsoDate(item.published_date, new Date(now - index * 2 * 60 * 60_000));
       const classification = classifyTitle(title);
       const impactDays = classification.impactDays;
-      const publishedAt = item.published_date
-        ? new Date(item.published_date).toISOString()
-        : new Date(now - index * 2 * 60 * 60_000).toISOString();
+
       return {
-        id: `news-${code}-${shortHash(item.url ?? title)}-${index}`,
+        id: `news-${code}-${shortHash(dedupeKey({ url, title, source: extractSource(url), published_at: publishedAt }))}`,
         code,
         title,
-        summary: item.content ?? "未获取到正文摘要。",
-        url: item.url ?? `https://example.com/news/${code}/${index + 1}`,
-        source: "Tavily",
+        summary: summary.slice(0, 800),
+        url,
+        source: extractSource(url),
         published_at: publishedAt,
         fetched_at: new Date(now).toISOString(),
         sentiment: classification.sentiment,
-        confidence: item.score ? Math.max(0, Math.min(1, item.score)) : 0.75,
+        confidence: normalizeConfidence(item.score, 0.75),
         impact_days: impactDays,
         expire_at: new Date(now + impactDays * 24 * 60 * 60_000).toISOString(),
         tags: classification.tags,
@@ -161,7 +271,141 @@ async function fetchNewsFromTavily(code: string, stock: Stock): Promise<NewsItem
   }
 }
 
-/** 获取资讯；未命中时外部搜索或确定性回退并写入 store。 */
+/** 从 DeepSeek JSON 响应中安全提取对象。 */
+function extractJsonObject(value: string): unknown {
+  const withoutFence = value
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "");
+  try {
+    return JSON.parse(withoutFence) as unknown;
+  } catch {
+    const start = withoutFence.indexOf("{");
+    const end = withoutFence.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      try {
+        return JSON.parse(withoutFence.slice(start, end + 1)) as unknown;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+}
+
+/** 调用 DeepSeek 逐条判定资讯情绪、置信度、影响周期与标签。 */
+async function classifyNewsWithDeepSeek(items: NewsItem[], stockName: string): Promise<NewsItem[]> {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey || apiKey === "replace-me" || items.length === 0) {
+    return items;
+  }
+
+  const baseUrl = (process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com").replace(/\/$/, "");
+  const model = process.env.DEEPSEEK_MODEL ?? "deepseek-chat";
+  const system = [
+    "你是专业的财经资讯分类助手。",
+    "只基于给定资讯的标题和摘要进行判断，不要编造额外事实。",
+    "只输出 JSON，不要输出 Markdown。",
+  ].join("\n");
+  const user = [
+    `股票名称：${stockName}`,
+    "请对每条资讯输出 JSON 对象：",
+    '{"items":[{"id":"原文 id","sentiment":"positive|negative|neutral","confidence":0到1的小数,"impact_days":整数,"tags":["短期"或"长期"等]}]}',
+    "impact_days 短期通常为 1 到 14 天，长期通常为 30 到 365 天。",
+    `资讯：${JSON.stringify(items.map((item) => ({
+      id: item.id,
+      title: item.title,
+      summary: item.summary,
+    })))}`,
+  ].join("\n");
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12_000);
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+        temperature: 0.1,
+        max_tokens: 3000,
+        response_format: { type: "json_object" },
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    if (!response.ok) {
+      recordExternalCall(false);
+      return items;
+    }
+
+    const payload = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    recordExternalCall(true);
+    const content = payload.choices?.[0]?.message?.content;
+    if (!content) {
+      return items;
+    }
+
+    const parsed = extractJsonObject(content) as {
+      items?: Array<{
+        id?: string;
+        title?: string;
+        sentiment?: unknown;
+        confidence?: unknown;
+        impact_days?: unknown;
+        tags?: unknown;
+      }>;
+    } | null;
+    if (!parsed || !Array.isArray(parsed.items)) {
+      return items;
+    }
+
+    const byId = new Map<string, (typeof parsed.items)[number]>();
+    const byTitle = new Map<string, (typeof parsed.items)[number]>();
+    for (const row of parsed.items) {
+      if (row.id) {
+        byId.set(row.id, row);
+      }
+      if (row.title) {
+        byTitle.set(row.title, row);
+      }
+    }
+
+    const now = Date.now();
+    return items.map((item) => {
+      const classification = byId.get(item.id) ?? byTitle.get(item.title);
+      if (!classification) {
+        return item;
+      }
+
+      const tags = normalizeTags(classification.tags);
+      const impactDays = normalizeImpactDays(classification.impact_days, tags);
+      return {
+        ...item,
+        sentiment: normalizeSentiment(classification.sentiment),
+        confidence: normalizeConfidence(classification.confidence, item.confidence),
+        impact_days: impactDays,
+        expire_at: new Date(now + impactDays * 24 * 60 * 60_000).toISOString(),
+        tags: tags.length > 0 ? tags : impactDays > 14 ? ["长期"] : ["短期"],
+      };
+    });
+  } catch {
+    recordExternalCall(false);
+    return items;
+  }
+}
+
+/** 获取资讯；未命中缓存时外部搜索或确定性回退，并写入 store 与 R2 快照。 */
 export async function getNews(code: string, forceRefresh = false): Promise<NewsItem[]> {
   const cacheKey = `news:${code}`;
   if (forceRefresh) {
@@ -171,18 +415,29 @@ export async function getNews(code: string, forceRefresh = false): Promise<NewsI
   return cacheGetOrSet(cacheKey, NEWS_TTL_MS, async () => {
     if (!forceRefresh) {
       const saved = await store.newsItems.listByCode(code);
-      if (saved.some((item) => item.status === "active")) {
-        return saved;
+      const active = saved.filter((item) => item.status === "active");
+      if (active.length > 0) {
+        return active;
       }
     }
 
     const stock = await import("@/lib/market-data").then((module) => module.getStock(code));
     const external = await fetchNewsFromTavily(code, stock);
-    const news = external && external.length > 0 ? external : buildDeterministicNews(code, stock);
+    const fallback = buildDeterministicNews(code, stock);
+    const candidate = external && external.length > 0 ? external : fallback;
+    const deduped = dedupeNewsItems(candidate);
+    const classified = await classifyNewsWithDeepSeek(deduped, stock.name);
+
+    let news = classified;
+    if (forceRefresh) {
+      const saved = await store.newsItems.listByCode(code);
+      news = dedupeNewsItems([...classified, ...saved.filter((item) => item.status === "active")]);
+    }
 
     for (const item of news) {
       await store.newsItems.insert(item);
     }
+    await saveNewsSnapshot(code, news);
     return news;
   });
 }

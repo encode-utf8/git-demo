@@ -1,4 +1,4 @@
-// AI 分析编排：读取行情/指标/资讯后生成教学式报告，并持久化。
+// AI 分析编排：读取行情/指标/资讯后生成教学式报告，并持久化到 store 与 R2 快照。
 import { recordExternalCall, recordTaskRun } from "@/lib/observability";
 import { getIndicators, getKlines, getMarketQuote, getStock } from "@/lib/market-data";
 import { getNews } from "@/lib/news";
@@ -18,7 +18,32 @@ function buildReportId(code: string): string {
 
 /** 判断文本是否包含确定性收益承诺；报告生成器必须避免这些表达。 */
 function hasForbiddenPromise(text: string): boolean {
-  return /必然(上涨|下跌|涨|跌)|一定(涨|跌)|稳赚|保本|包赚/.test(text);
+  const forbidden = /必然(上涨|下跌|涨|跌)|必(涨|跌)|一定(涨|跌)|稳赚|包赚|保本|稳赢/;
+  const disclaimer = /不|非|勿|无|没|未|风险|承诺|免责|请勿|不得|不能|不会|不应|不代表|不构成|不意味着/;
+  const sentences = text.split(/(?<=[。！？\n])/);
+  return sentences.some((sentence) => !disclaimer.test(sentence) && forbidden.test(sentence));
+}
+
+function sentimentText(item: NewsItem): string {
+  if (item.sentiment === "positive") {
+    return "利好";
+  }
+  if (item.sentiment === "negative") {
+    return "利空";
+  }
+  return "中性";
+}
+
+/** 构建报告中的来源与影响周期清单。 */
+function buildSourceSection(news: NewsItem[]): string {
+  if (news.length === 0) {
+    return "暂无有效资讯来源。";
+  }
+  const lines = news.slice(0, 12).map((item, index) => {
+    const urlText = item.url ? ` 来源链接：${item.url}` : "";
+    return `- ${index + 1}. ${item.title}（${item.source}，${sentimentText(item)}，影响约 ${item.impact_days} 天）${urlText}`;
+  });
+  return ["### 来源与影响周期", ...lines].join("\n");
 }
 
 /** 构建本地确定性报告正文。 */
@@ -62,6 +87,8 @@ function buildFallbackReport(
     "### 风险提示",
     "- 本报告不构成任何投资建议，不构成必然上涨或下跌的预测。",
     "- 所有结论仅供学习参考，用户需独立决策并自行承担盈亏。",
+    "",
+    buildSourceSection(news),
   ].join("\n");
 }
 
@@ -77,26 +104,36 @@ async function generateWithDeepSeek(
     return null;
   }
 
-  const baseUrl = process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com";
+  const baseUrl = (process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com").replace(/\/$/, "");
   const model = process.env.DEEPSEEK_MODEL ?? "deepseek-chat";
   const system = [
     "你是职业投资者视角的教学式分析助手。",
-    "必须基于给定数据，必须引用来源，必须给出风险提示。",
-    "禁止输出“必然涨/必然跌/稳赚/包赚”等确定性收益承诺。",
-    "使用中文 Markdown 输出。",
+    "必须基于给定数据，必须引用来源和影响周期，必须给出风险提示。",
+    "禁止输出“必然涨/必然跌/必涨/必跌/稳赚/包赚”等确定性收益承诺。",
+    "使用中文 Markdown 输出，包含：数据面、消息面、情绪面、教学讲解、风险提示、来源与影响周期。",
   ].join("\n");
   const user = [
-    "请根据以下数据生成分析报告：",
+    "请根据以下数据生成教学式分析报告：",
     `行情：${JSON.stringify(quote)}`,
     `指标：${JSON.stringify(indicators)}`,
-    `资讯：${JSON.stringify(news.map((item) => ({ title: item.title, source: item.source, sentiment: item.sentiment, impact_days: item.impact_days, url: item.url })))}`,
+    `资讯：${JSON.stringify(news.map((item) => ({
+      id: item.id,
+      title: item.title,
+      source: item.source,
+      url: item.url,
+      published_at: item.published_at,
+      sentiment: item.sentiment,
+      confidence: item.confidence,
+      impact_days: item.impact_days,
+      tags: item.tags,
+    })))}`,
     `用户补充：${prompt || "无"}`,
   ].join("\n");
 
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15_000);
-    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
+    const timer = setTimeout(() => controller.abort(), 20_000);
+    const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -109,7 +146,7 @@ async function generateWithDeepSeek(
           { role: "user", content: user },
         ],
         temperature: 0.4,
-        max_tokens: 1200,
+        max_tokens: 3000,
       }),
       signal: controller.signal,
     });
@@ -157,7 +194,10 @@ export async function runAnalysis(
     indicators,
     news,
   );
-  const content = llmContent ?? fallbackContent;
+  const baseContent = llmContent ?? fallbackContent;
+  const content = baseContent.includes("来源与影响周期")
+    ? baseContent
+    : `${baseContent}\n\n${buildSourceSection(news)}`;
   const riskNote = [
     "本报告仅供学习参考，不构成任何投资建议。",
     "市场存在不确定性，请勿将任何分析结论理解为必然上涨或下跌的承诺。",
@@ -173,6 +213,17 @@ export async function runAnalysis(
       indicators,
       kline_count: klines.length,
       news_count: news.length,
+      news: news.map((item) => ({
+        id: item.id,
+        title: item.title,
+        url: item.url,
+        source: item.source,
+        published_at: item.published_at,
+        sentiment: item.sentiment,
+        confidence: item.confidence,
+        impact_days: item.impact_days,
+        tags: item.tags,
+      })),
     },
     news_refs: news.map((item) => item.id),
     content,

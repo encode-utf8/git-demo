@@ -41,6 +41,7 @@ export function NewsPanel({
               <span>影响 {item.impact_days} 天</span>
               <span>到期 {formatDateTime(item.expire_at)}</span>
               <span>置信度 {(item.confidence * 100).toFixed(0)}%</span>
+              {item.tags.length > 0 ? <span>标签：{item.tags.join("、")}</span> : null}
             </div>
           </div>
         ))}
