@@ -30,4 +30,8 @@ pnpm dev:data
 curl http://127.0.0.1:8000/health
 ```
 
-当前阶段只实现 `/health`，不包含 AkShare 业务逻辑。
+当前阶段已实现 `/health`、`/quote`、`/kline`：
+
+- `/quote` 优先返回 AkShare/Tencent 真实行情，字段包含最新价、涨跌幅、开高低收、量额、换手率、PE/PB、市值；
+- `/kline` 支持 `minute/day/week/month` 与 `qfq/hfq/none`；
+- AkShare 未安装或接口失败时自动降级为确定性数据，并标记 `source=deterministic-fallback`。

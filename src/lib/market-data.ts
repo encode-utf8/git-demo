@@ -73,6 +73,7 @@ export async function getKlines(
   limit: number,
   forceRefresh = false,
 ): Promise<Kline[]> {
+  // TODO: 共享 Kline 类型暂无 source/fetched_at；如需独立 K 线溯源，在本模块新增本地包装类型。
   const cacheKey = `kline:${code}:${period}:${adjust}:${limit}`;
   if (forceRefresh) {
     cacheInvalidatePrefix(`kline:${code}`);
