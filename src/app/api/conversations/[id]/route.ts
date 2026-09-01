@@ -6,7 +6,7 @@ import type { NextRequest } from "next/server";
 type RouteContext = { params: Promise<{ id: string }> };
 
 // GET /api/conversations/:id：会话与消息时间线。
-export async function GET(_request: NextRequest, context: RouteContext) {
+export async function GET(_request: NextRequest, context: RouteContext): Promise<Response> {
   const id = (await context.params).id;
   const timeline = await getConversationTimeline(id);
   if (!timeline) {
