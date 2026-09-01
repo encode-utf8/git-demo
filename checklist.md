@@ -52,3 +52,36 @@ python -m uvicorn app.main:app --app-dir data-service --host 127.0.0.1 --port 80
 - [x] R2 字段格式校验通过
 - [x] R2 Put/Get/Delete 自检通过
 - [x] AI 分析报告快照已写入 R2 并回填 r2_key
+
+
+## 下一阶段 MVP 底座（page 拆分与契约冻结）
+
+- 关联文档：`docs/plan.md`、`docs/design.md`
+- 分支：`feature/next-mvp`
+- 目标：仅做结构拆分与契约新增，页面功能与展示效果无回归
+
+### 验收项
+
+- [x] 已确认开发分支为 `feature/next-mvp`，未直接在 `main` 上修改
+- [x] `src/app/page.tsx` 已拆分为 10 个 panel 组件
+- [x] 页面容器保留全部状态管理与旧交互逻辑
+- [x] 新增 `DataSourceStatus`、`SchedulerJob`、`ChatStreamEvent` 共享契约
+- [x] 未破坏既有共享类型字段
+- [x] `data-service` `/quote`、`/kline` 已补充标准响应契约注释
+- [x] 未实现或接入 AkShare
+- [x] 未提交任何真实密钥
+
+### 验证命令
+
+```bash
+corepack pnpm install
+corepack pnpm typecheck
+corepack pnpm lint
+corepack pnpm build
+```
+
+### 完成记录
+
+- 完成日期：2026-09-01
+- 结果：install、typecheck、lint、build 全部通过
+- 备注：等待主控合并到 main。
