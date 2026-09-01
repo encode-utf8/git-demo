@@ -14,6 +14,7 @@ export interface ObservabilityData {
     analysisRuns: number;
     chatRuns: number;
     cleanupRuns: number;
+    refreshRuns: number;
     lastEventAt: string | null;
     externalFailureRate: number;
     cacheHitRate: number;
@@ -55,9 +56,9 @@ export function ObservabilityPanel({
               <div className="mt-1 text-xl font-semibold">{observability.metrics.cacheHitRate}%</div>
             </div>
             <div className="rounded-lg border p-3">
-              <div className="text-xs text-muted-foreground">分析 / 对话 / 清理</div>
+              <div className="text-xs text-muted-foreground">分析 / 对话 / 清理 / 刷新</div>
               <div className="mt-1 text-xl font-semibold">
-                {observability.metrics.analysisRuns} / {observability.metrics.chatRuns} / {observability.metrics.cleanupRuns}
+                {observability.metrics.analysisRuns} / {observability.metrics.chatRuns} / {observability.metrics.cleanupRuns} / {observability.metrics.refreshRuns}
               </div>
             </div>
           </div>
