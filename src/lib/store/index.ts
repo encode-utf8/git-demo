@@ -1,4 +1,4 @@
-﻿// 数据访问接口与内存版 stub。
+// 数据访问接口与内存版 stub。
 // 后续 feature/persistence-cleanup 实现 Drizzle 版本时必须保持这里冻结的签名不变。
 
 import type {
@@ -14,6 +14,7 @@ import type {
   NewsStatus,
   Stock,
 } from "@/lib/shared/types";
+import { createDrizzleStore } from "./drizzle-store";
 
 /** 股票仓库接口。 */
 export interface StockRepository {
@@ -219,3 +220,17 @@ export function createMemoryStore(): Store {
 
 /** 默认内存 store 单例。 */
 export const memoryStore: Store = createMemoryStore();
+
+let persistedStore: Store | null = null;
+
+/** 按环境变量选择真实数据库或内存回退实现。 */
+export function getStore(): Store {
+  if (process.env.DATABASE_URL) {
+    persistedStore ??= createDrizzleStore();
+    return persistedStore;
+  }
+  return memoryStore;
+}
+
+/** 默认 store 单例，供业务编排与 API 路由统一使用。 */
+export const store: Store = getStore();

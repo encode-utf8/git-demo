@@ -1,58 +1,38 @@
-﻿# 个股盘面分析网站
+# 个股盘面分析网站
 
-本地运行的个股盘面分析与 AI 学习工具。当前分支为 P1 工程初始化底座。
+本地运行的个股盘面分析与 AI 学习工具。支持 A 股代码查询、行情/K 线/技术指标、资讯分析报告、多轮对话与历史回看。
+
+## 当前能力
+
+- 盘面：股票代码校验与市场识别、行情快照、分时/日/周/月 K 线、MA/MACD/KDJ/RSI/BOLL。
+- 分析：资讯抓取与去重、利好/利空/中性分类、影响周期、教学式报告与风险提示。
+- 对话：SSE 流式输出、多轮上下文、工具调用与来源引用。
+- 持久化与清理：TTL 缓存复用、资讯软删除、任务日志与可观测性指标。
+- 降级：未配置外部密钥时自动使用确定性演示数据，并明确标注来源与更新时间。
 
 ## 技术栈
 
 - Web/Agent：Next.js App Router + TypeScript + Tailwind CSS + shadcn/ui
 - 行情侧车：Python 3.12 + FastAPI
 - 数据库：Drizzle ORM + Supabase/Neon PostgreSQL
-- 对象存储：Cloudflare R2
 - 包管理：Node 20+，pnpm
-
-## 目录结构
-
-- `src/app`：Next.js 页面与 API Route
-- `src/lib/shared`：冻结的共享类型与统一 API 响应/错误类型
-- `src/lib/store`：数据访问接口与内存版 stub
-- `src/lib/db`：Drizzle schema 与数据库客户端
-- `src/lib/mock`：mock 数据
-- `data-service/`：FastAPI 行情侧车（当前仅 `/health`）
-- `drizzle/`：迁移文件输出目录（本阶段不执行线上迁移）
 
 ## 环境准备
 
-1. 复制环境变量模板：
-
 ```bash
 cp .env.example .env
-```
-
-2. 创建行情侧车专属 conda 环境：
-
-```bash
-conda env create -n stock-analysis -f data-service/environment.yml
-conda activate stock-analysis
-```
-
-3. 安装 Node 依赖：
-
-```bash
 corepack enable
-pnpm install
+corepack pnpm install
 ```
 
 ## 启动
 
 ```bash
 # Web（http://127.0.0.1:3000）
-pnpm dev
+corepack pnpm dev
 
 # 行情侧车（http://127.0.0.1:8000）
-pnpm dev:data
-
-# 同时启动
-pnpm dev:all
+python -m uvicorn app.main:app --app-dir data-service --host 127.0.0.1 --port 8000
 ```
 
 健康检查：
@@ -62,12 +42,10 @@ pnpm dev:all
 
 ## 常用命令
 
-- `pnpm typecheck`：TypeScript 类型检查
-- `pnpm lint`：ESLint
-- `pnpm db:generate`：生成本地 Drizzle 迁移文件
-- `pnpm db:migrate`：执行迁移（需先配置 `DATABASE_URL`，P1 不执行）
+- `corepack pnpm typecheck`：TypeScript 类型检查
+- `corepack pnpm lint`：ESLint
+- `corepack pnpm dev`：启动 Web 开发服务
 
-## 契约冻结
+## 免责声明
 
-`docs/design.md` 第 6 节数据模型与第 7 节接口已在 `src/lib/shared` 和
-`src/app/api` 中冻结；后续分支按契约开发，集成阶段统一联调。
+本项目仅供学习参考，不构成投资建议。所有行情、资讯与 AI 输出均可能存在延迟或误差，请独立判断并自行承担盈亏。
