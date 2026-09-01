@@ -1,19 +1,81 @@
-﻿// POST /api/chat：SSE 流式对话（mock）。
-// 冻结为 text/event-stream 响应，后续由 AI 分支替换为真实流式输出。
-export async function POST(): Promise<Response> {
-  const encoder = new TextEncoder();
-  const chunks = [
-    "data: {\"type\":\"start\"}\n\n",
-    "data: {\"type\":\"delta\",\"content\":\"这是 mock 流式回复。\"}\n\n",
-    "data: {\"type\":\"done\"}\n\n",
-  ];
+import { apiFail } from "@/lib/api-response";
+import { runChat } from "@/lib/chat";
+import { normalizeStockCode } from "@/lib/market";
+import { recordTaskRun } from "@/lib/observability";
+
+import type { NextRequest } from "next/server";
+
+const encoder = new TextEncoder();
+
+function sse(data: unknown): string {
+  return `data: ${JSON.stringify(data)}\n\n`;
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+// POST /api/chat：SSE 流式对话。
+export async function POST(request: NextRequest): Promise<Response> {
+  const body = (await request.json().catch(() => null)) as {
+    code?: string;
+    conversationId?: string;
+    message?: string;
+  } | null;
+
+  const code = body?.code ? normalizeStockCode(body.code) : null;
+  const message = body?.message?.trim();
+  if (!code || !message) {
+    return apiFail("VALIDATION_ERROR", "请提供股票代码与对话内容。", 400);
+  }
+
+  recordTaskRun("chat");
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      for (const chunk of chunks) {
-        controller.enqueue(encoder.encode(chunk));
+      const send = (data: unknown) => {
+        controller.enqueue(encoder.encode(sse(data)));
+      };
+
+      try {
+        send({ type: "start" });
+        const result = await runChat({
+          code,
+          conversationId: body?.conversationId,
+          message,
+        });
+        send({ type: "meta", data: { conversationId: result.conversationId } });
+        send({ type: "tool", data: { toolCalls: result.reply.toolCalls } });
+
+        const characters = Array.from(result.reply.content);
+        const chunkSize = 24;
+        for (let index = 0; index < characters.length; index += chunkSize) {
+          send({
+            type: "delta",
+            content: characters.slice(index, index + chunkSize).join(""),
+          });
+          await delay(12);
+        }
+
+        send({
+          type: "done",
+          data: {
+            conversationId: result.reply.conversationId,
+            messageId: result.reply.messageId,
+            sources: result.reply.sources,
+            riskNote: result.reply.riskNote,
+          },
+        });
+      } catch (error) {
+        send({
+          type: "error",
+          data: {
+            message: error instanceof Error ? error.message : "对话生成失败。",
+          },
+        });
+      } finally {
+        controller.close();
       }
-      controller.close();
     },
   });
 

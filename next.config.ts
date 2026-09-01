@@ -1,6 +1,8 @@
-﻿import type { NextConfig } from "next";
+import type { NextConfig } from "next";
 
-// Next.js 配置：当前仅保留默认值，后续按需扩展。
-const nextConfig: NextConfig = {};
+// 关闭 Next.js 16 自动生成 AGENTS.md/CLAUDE.md 的行为，保持仓库清洁。
+const nextConfig: NextConfig = {
+  agentRules: false,
+};
 
 export default nextConfig;

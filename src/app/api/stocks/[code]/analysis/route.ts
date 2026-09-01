@@ -1,25 +1,24 @@
-﻿import { apiOk } from "@/lib/api-response";
-import { mockReports } from "@/lib/mock";
+import { apiFail, apiOk, apiUnexpected } from "@/lib/api-response";
+import { runAnalysis } from "@/lib/analysis";
+import { normalizeStockCode } from "@/lib/market";
 
-import type { AnalysisRequest } from "@/lib/shared/types";
 import type { NextRequest } from "next/server";
 
 type RouteContext = { params: Promise<{ code: string }> };
 
-// POST /api/stocks/:code/analysis：触发 AI 分析（mock）。
-export async function POST(_request: NextRequest, context: RouteContext) {
-  const { code } = await context.params;
-  const report = mockReports[0] ?? {
-    id: "report-mock",
-    code,
-    created_at: new Date().toISOString(),
-    data_snapshot: null,
-    news_refs: [],
-    content: "占位分析报告。",
-    risk_note: "仅供学习参考，不构成投资建议。",
-  };
-  return apiOk({ ...report, code }, { status: 202 });
-}
+// POST /api/stocks/:code/analysis：触发 AI 分析并生成报告。
+export async function POST(request: NextRequest, context: RouteContext) {
+  const rawCode = (await context.params).code;
+  const code = normalizeStockCode(rawCode);
+  if (!code) {
+    return apiFail("VALIDATION_ERROR", "请输入 6 位沪深北 A 股代码。", 400);
+  }
 
-// 请求体结构已冻结，当前 mock 不解析业务内容。
-export type { AnalysisRequest };
+  try {
+    const body = (await request.json().catch(() => ({}))) as { prompt?: string };
+    const report = await runAnalysis(code, body.prompt);
+    return apiOk(report, { status: 202 });
+  } catch (error) {
+    return apiUnexpected(error);
+  }
+}
