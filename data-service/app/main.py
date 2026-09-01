@@ -101,6 +101,8 @@ def _curl_get_text(url: str, params: dict | None = None) -> str | None:
 
 def _tencent_symbol(code: str) -> str:
     """将 6 位 A 股代码转换为腾讯行情前缀代码。"""
+    if code == "830799":
+        return "bj920799"
     if code.startswith(("4", "8")):
         return f"bj{code}"
     if code.startswith(("6", "9")):
@@ -118,7 +120,8 @@ def _build_tencent_quote(code: str) -> dict | None:
     try:
         payload = text.split('="', 1)[1].rsplit('"', 1)[0]
         parts = payload.split("~")
-        if len(parts) < 47 or parts[2] != code:
+        target_code = symbol[-6:]
+        if len(parts) < 47 or parts[2] not in (code, target_code):
             return None
 
         price = _number(parts[3])
