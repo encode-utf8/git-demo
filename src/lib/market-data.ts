@@ -73,6 +73,7 @@ export async function getKlines(
   limit: number,
   forceRefresh = false,
 ): Promise<Kline[]> {
+  // TODO: 共享 Kline 类型暂无 source/fetched_at；如需独立 K 线溯源，在本模块新增本地包装类型。
   const cacheKey = `kline:${code}:${period}:${adjust}:${limit}`;
   if (forceRefresh) {
     cacheInvalidatePrefix(`kline:${code}`);
@@ -90,7 +91,12 @@ export async function getKlines(
   return cacheGetOrSet(cacheKey, ttlMs, async () => {
     if (!forceRefresh) {
       const saved = await store.klines.list(code, period, adjust, limit);
-      if (saved.length > 0) {
+      if (
+        saved.length > 0 &&
+        saved.every(
+          (item) => typeof item.fetched_at === "string" && isFresh(item.fetched_at, ttlMs),
+        )
+      ) {
         return saved;
       }
     }

@@ -7,6 +7,25 @@ import * as schema from "./schema";
 
 let dbInstance: ReturnType<typeof createDb> | null = null;
 
+/** 判断当前环境是否配置了可用的真实 PostgreSQL 数据库。 */
+export function hasRealDatabaseUrl(): boolean {
+  const url = process.env.DATABASE_URL;
+  if (!url || /replace-me/i.test(url)) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(url);
+    const isRemoteHost =
+      parsed.hostname !== "localhost" &&
+      parsed.hostname !== "127.0.0.1" &&
+      parsed.hostname !== "::1";
+    return isRemoteHost;
+  } catch {
+    return false;
+  }
+}
+
 function createDb() {
   const url = process.env.DATABASE_URL;
   if (!url) {

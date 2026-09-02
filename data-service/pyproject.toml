@@ -7,6 +7,9 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "pydantic-settings>=2.6",
+    "akshare>=1.16",
+    "curl_cffi>=0.10",
+    "py-mini-racer>=0.6",
 ]
 
 [tool.uvicorn]

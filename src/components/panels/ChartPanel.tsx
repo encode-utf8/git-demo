@@ -20,6 +20,17 @@ interface ChartPanelProps {
   onAdjustChange: (adjust: AdjustType) => void;
 }
 
+/** 将来源标识转换为中文展示文案。 */
+function sourceLabel(source: string): string {
+  if (source === "akshare") {
+    return "AkShare 实时行情";
+  }
+  if (source === "deterministic-fallback") {
+    return "确定性降级数据";
+  }
+  return source;
+}
+
 function CandlestickChart({ klines }: { klines: Kline[] }) {
   if (klines.length === 0) {
     return <div className="text-sm text-muted-foreground">暂无 K 线数据。</div>;
@@ -114,7 +125,7 @@ export function ChartPanel({
           <h2 className="text-lg font-semibold">{stock.name}（{stock.code}）盘面</h2>
           <p className="text-xs text-muted-foreground">
             数据时间：{formatDateTime(quote.fetched_at)}（{freshnessText(quote.fetched_at)}），
-            来源：{quote.source}
+            来源：{sourceLabel(quote.source)}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

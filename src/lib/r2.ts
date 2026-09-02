@@ -151,6 +151,9 @@ export async function deleteObject(key: string): Promise<void> {
 
 /** 保存分析报告快照到 R2；失败时返回 null，不阻塞主流程。 */
 export async function saveAnalysisSnapshot(report: AnalysisReport): Promise<string | null> {
+  if (!isR2Configured()) {
+    return null;
+  }
   try {
     const key = `analysis/${report.code}/${report.id}.json`;
     await putJsonObject(key, report);
@@ -163,6 +166,9 @@ export async function saveAnalysisSnapshot(report: AnalysisReport): Promise<stri
 
 /** 保存资讯原始结果快照到 R2；失败时返回 null，不阻塞主流程。 */
 export async function saveNewsSnapshot(code: string, items: NewsItem[]): Promise<string | null> {
+  if (!isR2Configured()) {
+    return null;
+  }
   try {
     const key = `news/${code}/${Date.now()}.json`;
     await putJsonObject(key, items);

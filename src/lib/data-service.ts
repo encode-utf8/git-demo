@@ -8,7 +8,9 @@ import type {
 } from "@/lib/shared/types";
 
 const DEFAULT_DATA_SERVICE_URL = "http://127.0.0.1:8000";
-const REQUEST_TIMEOUT_MS = 1500;
+const REQUEST_TIMEOUT_MS = 12000;
+const QUOTE_TIMEOUT_MS = 10000;
+const KLINE_TIMEOUT_MS = 20000;
 
 /** 获取侧车地址，读取环境变量或使用默认值。 */
 function dataServiceUrl(): string {
@@ -16,9 +18,9 @@ function dataServiceUrl(): string {
 }
 
 /** 带超时的 JSON 请求。 */
-async function fetchJson<T>(path: string): Promise<T> {
+async function fetchJson<T>(path: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(`${dataServiceUrl()}${path}`, {
       signal: controller.signal,
@@ -40,7 +42,12 @@ function isQuote(value: unknown): value is MarketQuote {
     return false;
   }
   const item = value as Partial<MarketQuote>;
-  return typeof item.code === "string" && typeof item.price === "number";
+  return (
+    typeof item.code === "string" &&
+    typeof item.price === "number" &&
+    typeof item.source === "string" &&
+    typeof item.fetched_at === "string"
+  );
 }
 
 /** 校验侧车返回的 K 线结构是否可用。 */
@@ -61,7 +68,10 @@ function isKlineList(value: unknown): value is Kline[] {
 /** 从行情侧车获取当前行情；不可用时返回 null。 */
 export async function fetchQuoteFromSidecar(code: string): Promise<MarketQuote | null> {
   try {
-    const data = await fetchJson<MarketQuote>(`/quote?code=${encodeURIComponent(code)}`);
+    const data = await fetchJson<MarketQuote>(
+      `/quote?code=${encodeURIComponent(code)}`,
+      QUOTE_TIMEOUT_MS,
+    );
     recordExternalCall(true);
     return isQuote(data) ? data : null;
   } catch {
@@ -84,7 +94,10 @@ export async function fetchKlinesFromSidecar(
       adjust,
       limit: String(limit),
     });
-    const data = await fetchJson<Kline[]>(`/kline?${params.toString()}`);
+    const data = await fetchJson<Kline[]>(
+      `/kline?${params.toString()}`,
+      KLINE_TIMEOUT_MS,
+    );
     recordExternalCall(true);
     return isKlineList(data) ? data : null;
   } catch {
