@@ -10,6 +10,17 @@ const NEWS_TTL_MS = 5 * 60_000;
 const SHORT_IMPACT_DAYS = 7;
 const LONG_IMPACT_DAYS = 30;
 
+/** Tavily 是否已配置真实密钥。 */
+function hasTavilyKey(): boolean {
+  const apiKey = process.env.TAVILY_API_KEY;
+  return Boolean(apiKey && apiKey !== "replace-me");
+}
+
+/** 判断资讯是否为本地演示降级数据。 */
+function isDemoNewsItem(item: NewsItem): boolean {
+  return item.source.startsWith("演示");
+}
+
 /** 生成稳定短哈希，用于资讯去重标识。 */
 function shortHash(input: string): string {
   let hash = 0;
@@ -415,7 +426,13 @@ export async function getNews(code: string, forceRefresh = false): Promise<NewsI
   return cacheGetOrSet(cacheKey, NEWS_TTL_MS, async () => {
     if (!forceRefresh) {
       const saved = await store.newsItems.listByCode(code);
-      const active = saved.filter((item) => item.status === "active");
+      const now = Date.now();
+      const active = saved.filter((item) => {
+        if (item.status !== "active" || new Date(item.expire_at).getTime() < now) {
+          return false;
+        }
+        return hasTavilyKey() ? !isDemoNewsItem(item) : true;
+      });
       if (active.length > 0) {
         return active;
       }
@@ -431,7 +448,17 @@ export async function getNews(code: string, forceRefresh = false): Promise<NewsI
     let news = classified;
     if (forceRefresh) {
       const saved = await store.newsItems.listByCode(code);
-      news = dedupeNewsItems([...classified, ...saved.filter((item) => item.status === "active")]);
+      const now = Date.now();
+      const savedCandidates = saved.filter((item) => {
+        if (item.status !== "active" || new Date(item.expire_at).getTime() < now) {
+          return false;
+        }
+        return hasTavilyKey() ? !isDemoNewsItem(item) : true;
+      });
+      news = dedupeNewsItems([
+        ...classified,
+        ...savedCandidates,
+      ]);
     }
 
     for (const item of news) {

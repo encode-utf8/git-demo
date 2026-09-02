@@ -64,6 +64,10 @@ export interface Kline {
   volume: number;
   amount: number;
   adj_type: AdjustType;
+  /** 数据来源；旧数据或降级数据可能缺失。 */
+  source?: string;
+  /** 抓取时间；旧数据或降级数据可能缺失。 */
+  fetched_at?: string;
 }
 
 /** 资讯条目。 */

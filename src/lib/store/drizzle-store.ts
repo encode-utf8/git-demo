@@ -60,6 +60,8 @@ function mapKline(row: typeof schema.klines.$inferSelect): Kline {
     volume: row.volume,
     amount: row.amount,
     adj_type: row.adjType as AdjustType,
+    source: row.source ?? undefined,
+    fetched_at: row.fetchedAt?.toISOString(),
   };
 }
 
@@ -258,6 +260,8 @@ export function createDrizzleStore(): Store {
               volume: kline.volume,
               amount: kline.amount,
               adjType: kline.adj_type,
+              source: kline.source,
+              fetchedAt: kline.fetched_at ? toDate(kline.fetched_at) : null,
             })),
           )
           .onConflictDoNothing();

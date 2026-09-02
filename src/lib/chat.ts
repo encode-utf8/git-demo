@@ -290,7 +290,7 @@ function summarizeNews(news: NewsItem[]): string {
 
 function summarizeReport(report: AnalysisReport | null): string {
   if (!report) {
-    return "暂无历史报告。";
+    return JSON.stringify({ message: "暂无历史报告" });
   }
   return JSON.stringify({
     id: report.id,
@@ -584,7 +584,7 @@ async function buildFallbackReply(request: ChatRequest): Promise<{
   const quote = await getMarketQuote(request.code);
   const stock = await getStock(request.code);
   const content = [
-    `你问的是“${request.message}”。我已结合 ${stock.name} 的真实行情、指标、资讯与报告进行整理。`,
+    `你问的是“${request.message}”。我已结合 ${stock.name} 的当前可用行情、指标、资讯与报告进行整理。`,
     "",
     "### 数据概览",
     `- 最新价：${quote.price.toFixed(2)}，涨跌幅 ${quote.change_pct.toFixed(2)}%。`,
@@ -638,6 +638,8 @@ export async function* streamChat(request: ChatRequest): AsyncGenerator<ChatStre
     ...buildHistoryMessages(history),
     { role: "user", content: request.message },
   ];
+
+  yield { type: "meta", data: { conversationId: conversation.id } };
 
   const executions: ToolExecution[] = [];
   const toolCalls: ChatReply["toolCalls"] = [];

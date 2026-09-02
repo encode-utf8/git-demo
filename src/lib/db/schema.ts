@@ -65,6 +65,8 @@ export const klines = pgTable(
     volume: doublePrecision("volume").notNull(),
     amount: doublePrecision("amount").notNull(),
     adjType: text("adj_type").notNull(),
+    source: text("source"),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }),
   },
   (table) => [
     primaryKey({ columns: [table.code, table.period, table.ts, table.adjType] }),

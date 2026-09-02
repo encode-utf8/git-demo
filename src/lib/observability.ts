@@ -3,7 +3,7 @@
 
 import { sql } from "drizzle-orm";
 
-import { getDb, schema } from "@/lib/db";
+import { getDb, hasRealDatabaseUrl, schema } from "@/lib/db";
 
 export interface ObservabilitySnapshot {
   externalCalls: number;
@@ -61,7 +61,7 @@ let hydrationPromise: Promise<void> | null = null;
 let metricsTableReadyPromise: Promise<void> | null = null;
 
 function getMetricsDatabase(): ReturnType<typeof getDb> | null {
-  if (!process.env.DATABASE_URL) {
+  if (!hasRealDatabaseUrl()) {
     return null;
   }
 
@@ -167,7 +167,7 @@ async function loadPersistedMetrics(): Promise<void> {
 
 /** 确保在读取指标前完成一次数据库水合；无数据库时直接返回。 */
 export async function ensureObservabilityHydrated(): Promise<void> {
-  if (!process.env.DATABASE_URL) {
+  if (!hasRealDatabaseUrl()) {
     return;
   }
 

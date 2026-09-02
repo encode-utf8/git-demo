@@ -91,7 +91,12 @@ export async function getKlines(
   return cacheGetOrSet(cacheKey, ttlMs, async () => {
     if (!forceRefresh) {
       const saved = await store.klines.list(code, period, adjust, limit);
-      if (saved.length > 0) {
+      if (
+        saved.length > 0 &&
+        saved.every(
+          (item) => typeof item.fetched_at === "string" && isFresh(item.fetched_at, ttlMs),
+        )
+      ) {
         return saved;
       }
     }

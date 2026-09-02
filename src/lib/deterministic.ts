@@ -191,10 +191,11 @@ export function buildDeterministicKlines(
 
   let previousClose = price * 0.9;
   return dates.map((date, index) => {
-    const trend = (index / Math.max(dates.length - 1, 1)) * 0.1;
-    const change = (random() - 0.48) * 0.03 + trend;
+    const progress = index / Math.max(dates.length - 1, 1);
+    const trend = (progress - 0.5) * 0.08;
+    const wave = (random() - 0.5) * 0.03;
     const open = previousClose;
-    const close = index === dates.length - 1 ? price : round(open * (1 + change), 2);
+    const close = index === dates.length - 1 ? price : round(price * (1 + trend + wave), 2);
     const high = round(Math.max(open, close) * (1 + random() * 0.018), 2);
     const low = round(Math.min(open, close) * (1 - random() * 0.018), 2);
     const volume = Math.round(1_500_000 + random() * 7_500_000);

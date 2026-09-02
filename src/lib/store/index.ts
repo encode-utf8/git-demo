@@ -14,6 +14,7 @@ import type {
   NewsStatus,
   Stock,
 } from "@/lib/shared/types";
+import { hasRealDatabaseUrl } from "@/lib/db";
 import { createDrizzleStore } from "./drizzle-store";
 
 /** 股票仓库接口。 */
@@ -225,7 +226,7 @@ let persistedStore: Store | null = null;
 
 /** 按环境变量选择真实数据库或内存回退实现。 */
 export function getStore(): Store {
-  if (process.env.DATABASE_URL) {
+  if (hasRealDatabaseUrl()) {
     persistedStore ??= createDrizzleStore();
     return persistedStore;
   }

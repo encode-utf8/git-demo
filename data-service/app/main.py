@@ -286,6 +286,7 @@ def _build_akshare_kline(code: str, period: KlinePeriod, adjust: AdjustType, lim
     try:
         date_column = next(name for name in date_names if name in frame.columns)
         frame = frame.sort_values(date_column)
+        frame = frame.drop_duplicates(subset=[date_column], keep="last")
     except StopIteration:
         return None
 
@@ -373,6 +374,10 @@ def _tencent_daily_rows(code: str, adjust: AdjustType, years: int) -> list[dict]
             except Exception:
                 continue
 
+    deduped: dict[datetime, dict] = {}
+    for row in rows:
+        deduped[row["date"]] = row
+    rows = list(deduped.values())
     rows.sort(key=lambda item: item["date"])
     return rows
 
@@ -708,9 +713,11 @@ def _build_fallback_kline(code: str, period: KlinePeriod, adjust: AdjustType, li
     result: list[dict] = []
 
     for index, date in enumerate(dates):
-        change = (next(rng) - 0.48) * 0.03 + (index / max(len(dates) - 1, 1)) * 0.1
+        progress = index / max(len(dates) - 1, 1)
+        trend = (progress - 0.5) * 0.08
+        wave = (next(rng) - 0.5) * 0.03
         open_price = previous_close
-        close = latest_price if index == len(dates) - 1 else _round(open_price * (1 + change))
+        close = latest_price if index == len(dates) - 1 else _round(latest_price * (1 + trend + wave))
         high = _round(max(open_price, close) * (1 + next(rng) * 0.018))
         low = _round(min(open_price, close) * (1 - next(rng) * 0.018))
         volume = int(1_500_000 + next(rng) * 7_500_000)
