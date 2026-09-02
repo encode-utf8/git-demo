@@ -6,6 +6,7 @@ import type { FormEvent } from "react";
 import { AnalysisPanel } from "@/components/panels/AnalysisPanel";
 import { ChartPanel } from "@/components/panels/ChartPanel";
 import { ChatPanel, type ChatViewMessage } from "@/components/panels/ChatPanel";
+import { DataSourcePanel } from "@/components/panels/DataSourcePanel";
 import { DisclaimerFooter } from "@/components/panels/DisclaimerFooter";
 import { IndicatorsPanel } from "@/components/panels/IndicatorsPanel";
 import { NewsPanel } from "@/components/panels/NewsPanel";
@@ -14,8 +15,10 @@ import {
   type ObservabilityData,
 } from "@/components/panels/ObservabilityPanel";
 import { QuotePanel } from "@/components/panels/QuotePanel";
+import { ReplayPanel } from "@/components/panels/ReplayPanel";
 import { StockSearchPanel } from "@/components/panels/StockSearchPanel";
 import { TimelinePanel } from "@/components/panels/TimelinePanel";
+import { WatchlistPanel } from "@/components/panels/WatchlistPanel";
 
 import type {
   AdjustType,
@@ -401,6 +404,9 @@ export default function Home() {
           observability={observability}
           onRefresh={() => void loadObservability()}
         />
+        <WatchlistPanel />
+        <ReplayPanel />
+        <DataSourcePanel />
         <DisclaimerFooter quote={quote} />
       </div>
     </main>

@@ -15,6 +15,13 @@
       "when": 1788323700202,
       "tag": "0001_cooing_zuras",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788363830545,
+      "tag": "0002_eminent_celestials",
+      "breakpoints": true
     }
   ]
 }

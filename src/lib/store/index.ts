@@ -16,6 +16,11 @@ import type {
 } from "@/lib/shared/types";
 import { hasRealDatabaseUrl } from "@/lib/db";
 import { createDrizzleStore } from "./drizzle-store";
+export {
+  createMemoryWatchlistStore,
+  watchlistStore,
+  type WatchlistRepository,
+} from "./watchlist";
 
 /** 股票仓库接口。 */
 export interface StockRepository {
