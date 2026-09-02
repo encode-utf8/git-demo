@@ -1,9 +1,10 @@
 import { apiFail } from "@/lib/api-response";
-import { runChat } from "@/lib/chat";
+import { streamChat } from "@/lib/chat";
 import { normalizeStockCode } from "@/lib/market";
 import { recordTaskRun } from "@/lib/observability";
 
 import type { NextRequest } from "next/server";
+import type { ChatStreamEvent } from "@/lib/shared/types";
 
 const encoder = new TextEncoder();
 
@@ -11,11 +12,7 @@ function sse(data: unknown): string {
   return `data: ${JSON.stringify(data)}\n\n`;
 }
 
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-// POST /api/chat：SSE 流式对话。
+// POST /api/chat：SSE 流式对话，返回 DeepSeek 真实分块与工具调用。
 export async function POST(request: NextRequest): Promise<Response> {
   const body = (await request.json().catch(() => null)) as {
     code?: string;
@@ -33,39 +30,18 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const send = (data: unknown) => {
-        controller.enqueue(encoder.encode(sse(data)));
+      const send = (event: ChatStreamEvent) => {
+        controller.enqueue(encoder.encode(sse(event)));
       };
 
       try {
-        send({ type: "start" });
-        const result = await runChat({
+        for await (const event of streamChat({
           code,
           conversationId: body?.conversationId,
           message,
-        });
-        send({ type: "meta", data: { conversationId: result.conversationId } });
-        send({ type: "tool", data: { toolCalls: result.reply.toolCalls } });
-
-        const characters = Array.from(result.reply.content);
-        const chunkSize = 24;
-        for (let index = 0; index < characters.length; index += chunkSize) {
-          send({
-            type: "delta",
-            content: characters.slice(index, index + chunkSize).join(""),
-          });
-          await delay(12);
+        })) {
+          send(event);
         }
-
-        send({
-          type: "done",
-          data: {
-            conversationId: result.reply.conversationId,
-            messageId: result.reply.messageId,
-            sources: result.reply.sources,
-            riskNote: result.reply.riskNote,
-          },
-        });
       } catch (error) {
         send({
           type: "error",

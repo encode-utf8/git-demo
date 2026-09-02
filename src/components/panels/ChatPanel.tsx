@@ -65,7 +65,14 @@ export function ChatPanel({
               )}
               {message.tools?.length ? (
                 <div className="mt-2 border-t pt-2 text-xs text-muted-foreground">
-                  工具：{message.tools.map((tool) => tool.name).join("、")}
+                  <p className="font-medium">工具调用</p>
+                  <ul className="mt-1 list-disc pl-4">
+                    {message.tools.map((tool) => (
+                      <li key={`${tool.name}-${tool.summary}`}>
+                        <span className="font-medium">{tool.name}</span>：{tool.summary}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               ) : null}
               {message.sources?.length ? (
