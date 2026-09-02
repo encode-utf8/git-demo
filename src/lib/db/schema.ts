@@ -2,6 +2,7 @@
 // 本阶段只定义 schema 与迁移配置，不执行线上迁移。
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   doublePrecision,
   index,
@@ -159,3 +160,11 @@ export const jobRuns = pgTable(
     index("job_runs_name_started_idx").on(table.jobName, table.startedAt),
   ],
 );
+
+/** 可观测性指标持久化：计数与最近事件时间合并存储，重启后水合。 */
+export const observabilityMetrics = pgTable("observability_metrics", {
+  key: text("key").primaryKey(),
+  metricValue: bigint("metric_value", { mode: "number" }).notNull().default(0),
+  timestampValue: timestamp("timestamp_value", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+});
