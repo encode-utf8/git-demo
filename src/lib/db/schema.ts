@@ -170,3 +170,13 @@ export const observabilityMetrics = pgTable("observability_metrics", {
   timestampValue: timestamp("timestamp_value", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
 });
+
+/** 自选股列表：code 作为主键，后续 watchlist 功能分支直接使用。 */
+export const watchlist = pgTable("watchlist", {
+  code: text("code").primaryKey(),
+  name: text("name").notNull(),
+  exchange: text("exchange").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  note: text("note"),
+  addedAt: timestamp("added_at", { withTimezone: true }).notNull(),
+});
