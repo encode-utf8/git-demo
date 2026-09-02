@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, freshnessText } from "@/lib/format";
 import type { DataSourceHealthSnapshot, SchedulerJobView } from "@/lib/datasource-health";
 import type { DataSourceState, JobRun } from "@/lib/shared/types";
 
@@ -202,11 +202,17 @@ export function DataSourcePanel() {
                   </div>
                   <div className="flex justify-between gap-3">
                     <dt>最近检查</dt>
-                    <dd>{formatDateTime(source.last_checked_at)}</dd>
+                    <dd>
+                      {formatDateTime(source.last_checked_at)}（{freshnessText(source.last_checked_at)}）
+                    </dd>
                   </div>
                   <div className="flex justify-between gap-3">
                     <dt>最近成功</dt>
-                    <dd>{source.last_success_at ? formatDateTime(source.last_success_at) : "暂无"}</dd>
+                    <dd>
+                      {source.last_success_at
+                        ? `${formatDateTime(source.last_success_at)}（${freshnessText(source.last_success_at)}）`
+                        : "暂无"}
+                    </dd>
                   </div>
                   <div className="flex justify-between gap-3">
                     <dt>连续失败</dt>

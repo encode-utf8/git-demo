@@ -1,10 +1,10 @@
 import { apiFail, apiOk } from "@/lib/api-response";
 import { normalizeStockCode } from "@/lib/market";
-import { getReplaySummary, normalizeReplayDays } from "@/lib/replay";
+import { getReplayTimeline, normalizeReplayDays } from "@/lib/replay";
 
 import type { NextRequest } from "next/server";
 
-// GET /api/replay/stats?code=600519&days=30：汇总历史复盘统计。
+// GET /api/replay/timeline?code=600519&days=30：历史分析与对话时间线。
 export async function GET(request: NextRequest): Promise<Response> {
   const params = request.nextUrl.searchParams;
   const code = normalizeStockCode(params.get("code") ?? "");
@@ -13,5 +13,5 @@ export async function GET(request: NextRequest): Promise<Response> {
   }
 
   const days = normalizeReplayDays(params.get("days"));
-  return apiOk(await getReplaySummary(code, days));
+  return apiOk(await getReplayTimeline(code, days));
 }

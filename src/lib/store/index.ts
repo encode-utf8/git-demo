@@ -17,7 +17,6 @@ import type {
 import { hasRealDatabaseUrl } from "@/lib/db";
 import { createDrizzleStore } from "./drizzle-store";
 export {
-  createMemoryWatchlistStore,
   watchlistStore,
   type WatchlistRepository,
 } from "./watchlist";
