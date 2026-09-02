@@ -21,18 +21,18 @@
 
 ## 验收清单
 
-- [ ] `GET /api/stocks/:code/quote` 返回标准化行情
-- [ ] `GET /api/stocks/:code/kline?period=&adjust=` 支持分时/日/周/月
-- [ ] `GET /api/stocks/:code/indicators` 正常返回
-- [ ] MA、MACD、KDJ、RSI、BOLL 本地计算正确
-- [ ] 股票代码输入、校验与市场识别可用
-- [ ] 当前行情快照展示完整
-- [ ] K 线图展示无报错
-- [ ] 指标图展示无报错
-- [ ] 数据源异常时有降级提示与更新时间
-- [ ] 至少 3 只不同市场股票查询正常，数据与公开行情一致
-- [ ] `pnpm typecheck` 通过
-- [ ] 代码注释为中文，密钥未提交
+- [x] `GET /api/stocks/:code/quote` 返回标准化行情
+- [x] `GET /api/stocks/:code/kline?period=&adjust=` 支持分时/日/周/月
+- [x] `GET /api/stocks/:code/indicators` 正常返回
+- [x] MA、MACD、KDJ、RSI、BOLL 本地计算正确
+- [x] 股票代码输入、校验与市场识别可用
+- [x] 当前行情快照展示完整
+- [x] K 线图展示无报错
+- [x] 指标图展示无报错
+- [x] 数据源异常时有降级提示与更新时间
+- [x] 至少 3 只不同市场股票查询正常，数据与公开行情一致
+- [x] `pnpm typecheck` 通过
+- [x] 代码注释为中文，密钥未提交
 
 ## 验证命令
 
@@ -45,7 +45,7 @@ curl "http://127.0.0.1:3000/api/stocks/600519/kline?period=day&adjust=qfq"
 
 ## 完成记录
 
-- 完成日期：
-- 自测股票：
-- 结果：
-- 备注：
+- 完成日期：2026-09-01
+- 自测股票：600519、000001、830799
+- 结果：全部通过；真实行情由 `feature/real-market-data` 落地，详见 `data-service/checklist.md`。
+- 备注：真实数据源不可用时自动降级为确定性演示数据，并标记 `source` 与 `fetched_at`。

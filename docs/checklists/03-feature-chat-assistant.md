@@ -20,17 +20,17 @@
 
 ## 验收清单
 
-- [ ] 聊天界面可用
-- [ ] `POST /api/chat`（SSE）流式输出正常
-- [ ] 多轮上下文正确
-- [ ] 工具调用可用：get_quote/get_kline/get_indicators/search_news/get_report/save_report
-- [ ] 对话记录写入 store 接口
-- [ ] 回答可追溯引用数据
-- [ ] 禁止“必涨/必跌”护栏生效
-- [ ] 回答附风险提示
-- [ ] 连续 3 轮以上追问上下文正确
-- [ ] `pnpm typecheck` 通过
-- [ ] 代码注释为中文，密钥未提交
+- [x] 聊天界面可用
+- [x] `POST /api/chat`（SSE）流式输出正常
+- [x] 多轮上下文正确
+- [x] 工具调用可用：get_quote/get_kline/get_indicators/search_news/get_report/save_report
+- [x] 对话记录写入 store 接口
+- [x] 回答可追溯引用数据
+- [x] 禁止“必涨/必跌”护栏生效
+- [x] 回答附风险提示
+- [x] 连续 3 轮以上追问上下文正确
+- [x] `pnpm typecheck` 通过
+- [x] 代码注释为中文，密钥未提交
 
 ## 验证命令
 
@@ -42,7 +42,7 @@ pnpm dev
 
 ## 完成记录
 
-- 完成日期：
-- 自测轮数：
-- 结果：
-- 备注：
+- 完成日期：2026-09-01
+- 自测轮数：3 轮以上
+- 结果：全部通过；真实 DeepSeek 流式对话由 `feature/llm-chat` 落地。
+- 备注：流式开始即回传 `meta` 会话 ID，修复多轮追问上下文丢失问题。
