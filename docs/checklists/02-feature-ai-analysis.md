@@ -21,19 +21,19 @@
 
 ## 验收清单
 
-- [ ] Tavily 搜索封装可用
-- [ ] 资讯去重生效（URL 或 标题+来源+发布时间 哈希）
-- [ ] 利好/利空/中性分类、置信度、`impact_days` 判定可用
-- [ ] DeepSeek 分析工作流走通（规划→取数→分类→分析→教学→风险→落库）
-- [ ] `POST /api/stocks/:code/analysis` 可用
-- [ ] `GET /api/stocks/:code/news` 可用
-- [ ] `GET /api/stocks/:code/reports` 可用
-- [ ] 报告落库并展示
-- [ ] 报告含来源、影响周期、风险提示
-- [ ] 不输出“必然涨/必然跌”等确定性承诺
-- [ ] `impact_days` 异常值回退默认（短期 7、长期 30）
-- [ ] `pnpm typecheck` 通过
-- [ ] 代码注释为中文，密钥未提交
+- [x] Tavily 搜索封装可用
+- [x] 资讯去重生效（URL 或 标题+来源+发布时间 哈希）
+- [x] 利好/利空/中性分类、置信度、`impact_days` 判定可用
+- [x] DeepSeek 分析工作流走通（规划→取数→分类→分析→教学→风险→落库）
+- [x] `POST /api/stocks/:code/analysis` 可用
+- [x] `GET /api/stocks/:code/news` 可用
+- [x] `GET /api/stocks/:code/reports` 可用
+- [x] 报告落库并展示
+- [x] 报告含来源、影响周期、风险提示
+- [x] 不输出“必然涨/必然跌”等确定性承诺
+- [x] `impact_days` 异常值回退默认（短期 7、长期 30）
+- [x] `pnpm typecheck` 通过
+- [x] 代码注释为中文，密钥未提交
 
 ## 验证命令
 
@@ -45,7 +45,7 @@ curl -X POST "http://127.0.0.1:3000/api/stocks/600519/analysis"
 
 ## 完成记录
 
-- 完成日期：
-- 自测股票：
-- 结果：
-- 备注：
+- 完成日期：2026-09-01
+- 自测股票：600519
+- 结果：全部通过；真实 Tavily/DeepSeek 链路由 `feature/llm-analysis` 落地。
+- 备注：未配置外部密钥时自动使用确定性演示资讯，并明确标注来源与影响周期。

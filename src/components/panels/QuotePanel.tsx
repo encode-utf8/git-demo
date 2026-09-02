@@ -1,22 +1,11 @@
 "use client";
 
-import { formatDateTime, freshnessText } from "@/lib/format";
+import { formatDateTime, freshnessText, sourceLabel } from "@/lib/format";
 import type { MarketQuote, Stock } from "@/lib/shared/types";
 
 interface QuotePanelProps {
   stock: Stock;
   quote: MarketQuote;
-}
-
-/** 将来源标识转换为中文展示文案。 */
-function sourceLabel(source: string): string {
-  if (source === "akshare") {
-    return "AkShare 实时行情";
-  }
-  if (source === "deterministic-fallback") {
-    return "确定性降级数据";
-  }
-  return source;
 }
 
 /** 当前行情概览面板。 */

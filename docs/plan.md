@@ -1,4 +1,4 @@
-# 个股盘面分析网站 任务拆解文档
+﻿# 个股盘面分析网站 任务拆解文档
 
 - 文档版本：v1.0
 - 编制日期：2026-08-31
@@ -27,12 +27,13 @@
 
 ## 2. 各阶段任务
 
-### P0 文档编写（进行中）
+### P0 文档编写（已完成）
 - 任务：需求分析、技术设计、任务拆解。
 - 交付物：`spec.md`、`design.md`、`plan.md`。
 - 验收：范围、数据可得性、技术选型、待定事项均已明确，评审通过。
 - 依赖：无。
-- 状态：进行中。
+- 状态：已完成（2026-08-31）。
+- 完成记录：`spec.md`、`design.md`、`plan.md` 及 `docs/checklists/` 已评审通过。
 
 ### P1 工程初始化
 - 任务：
@@ -45,6 +46,8 @@
 - 交付物：可本地启动的工程骨架与环境配置说明。
 - 验收：前端、后端、行情侧车均能启动并通过健康检查；密钥不入库；云端存储连通。
 - 依赖：P0。
+- 分支建议：`feature/scaffold`。
+- 状态：已完成（2026-08-31），见 `docs/checklists/00-feature-scaffold.md`。
 
 ### P2 MVP 盘面展示
 - 任务：
@@ -57,6 +60,7 @@
 - 验收：至少 3 只不同市场股票查询正常，数据与公开行情一致，指标正确，界面无报错。
 - 依赖：P1。
 - 分支建议：`feature/quote-kline`。
+- 状态：已完成（2026-09-01）；真实行情分支 `feature/real-market-data`，见 `docs/checklists/01-feature-quote-kline.md`、`data-service/checklist.md`。
 
 ### P3 MVP AI 资讯与分析
 - 任务：
@@ -68,6 +72,7 @@
 - 验收：报告含来源、影响周期与风险提示；不输出“必然涨/必然跌”的确定性承诺。
 - 依赖：P2（行情数据）与 P1。
 - 分支建议：`feature/ai-analysis`。
+- 状态：已完成（2026-09-01）；真实 LLM 分支 `feature/llm-analysis`，见 `docs/checklists/02-feature-ai-analysis.md`、`docs/checklists/06-feature-integration-next.md`。
 
 ### P4 MVP 对话助手
 - 任务：
@@ -79,6 +84,7 @@
 - 验收：连续 3 轮以上追问上下文正确，回答可追溯所引用数据。
 - 依赖：P3。
 - 分支建议：`feature/chat-assistant`。
+- 状态：已完成（2026-09-01）；真实对话分支 `feature/llm-chat`，见 `docs/checklists/03-feature-chat-assistant.md`、`docs/checklists/06-feature-integration-next.md`。
 
 ### P5 MVP 持久化与清理
 - 任务：
@@ -89,6 +95,7 @@
 - 验收：同代码第二次查询明显减少外部调用；本地磁盘占用可控；清理日志可查。
 - 依赖：P3、P4 的数据写入。
 - 分支建议：`feature/persistence-cleanup`。
+- 状态：已完成（2026-09-01）；真实持久化与调度分支 `feature/scheduler-observability`，见 `docs/checklists/04-feature-persistence-cleanup.md`、`docs/checklists/06-feature-integration-next.md`。
 
 ### P6 打磨与整体验收
 - 任务：
@@ -100,8 +107,11 @@
 - 验收：满足需求文档 M1–M5 全部验收标准。
 - 依赖：P2–P5。
 - 分支建议：`feature/polish`。
+- 状态：已完成（2026-09-02）；集成分支 `feature/integration-next`，M1–M5 全部通过，见根 `checklist.md`、`docs/checklists/06-feature-integration-next.md`。
 
 ### P7 后续迭代（可选）
+- 状态：未开始；已冻结下一阶段契约并拆分页面（`feature/next-mvp`）。
+- 开发编排、Agent 提示词与 worktree 命令见 `docs/next-phase-dev-plan.md`。
 - 自选股池与多股票。
 - 实时行情推送与预警。
 - 历史复盘与命中率统计（仅用于学习）。
@@ -142,5 +152,6 @@
 
 ## 6. 下一步
 
-- 完成 P0 收尾（评审与待定事项确认）。
-- 确认行情源“免费组合/Tushare 积分”与云端存储组合后，启动 P1 工程初始化。
+- P0–P6 / M1–M5 已完成并合并到 `main`，工作区干净。
+- 下一阶段候选：数据源健康与调度面板、自选股池与多股票、历史复盘、多市场/多语言、情绪指标与回测。
+- 开发编排、Agent 提示词与 worktree 命令见 `docs/next-phase-dev-plan.md`。

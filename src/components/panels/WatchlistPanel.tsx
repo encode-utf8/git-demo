@@ -1,13 +1,336 @@
-"use client";
+﻿"use client";
 
-/** 自选股功能占位面板，后续 watchlist 分支在此接入真实列表与操作。 */
-export function WatchlistPanel() {
+import { useCallback, useEffect, useState } from "react";
+import type { FormEvent } from "react";
+
+import { Button } from "@/components/ui/button";
+import type { WatchlistItem } from "@/lib/shared/types";
+
+/** 统一响应包装结构。 */
+interface ApiEnvelope<T> {
+  success: boolean;
+  data?: T;
+  error?: { message?: string };
+}
+
+/** 读取统一 JSON 响应并抛出可展示错误。 */
+async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, init);
+  const payload = (await response.json().catch(() => null)) as ApiEnvelope<T> | null;
+  if (!payload?.success || payload.data === undefined) {
+    throw new Error(payload?.error?.message ?? "自选股请求失败。");
+  }
+  return payload.data;
+}
+
+/** 将交易所代码转换为中文标签。 */
+function exchangeLabel(exchange: string): string {
+  if (exchange === "SH") return "上海";
+  if (exchange === "SZ") return "深圳";
+  if (exchange === "BJ") return "北京";
+  return exchange;
+}
+
+interface WatchlistPanelProps {
+  activeCode: string | null;
+  onSelect: (code: string) => void;
+  onClearActive?: () => void;
+}
+
+/** 自选股面板：支持添加、删除、排序、备注并切换当前股票。 */
+export function WatchlistPanel({
+  activeCode,
+  onSelect,
+  onClearActive,
+}: WatchlistPanelProps) {
+  const [items, setItems] = useState<WatchlistItem[]>([]);
+  const [codeInput, setCodeInput] = useState("");
+  const [noteInput, setNoteInput] = useState("");
+  const [editingCode, setEditingCode] = useState<string | null>(null);
+  const [editingNote, setEditingNote] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadWatchlist = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await apiFetch<WatchlistItem[]>("/api/watchlist");
+      setItems(data);
+      setError(null);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "自选股加载失败。");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // 延迟到下一轮任务加载，避免在 effect 内同步 setState 引发级联渲染。
+    const timer = window.setTimeout(() => {
+      void loadWatchlist();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadWatchlist]);
+
+  const handleAdd = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const code = codeInput.trim();
+    if (!code) {
+      setError("请输入要添加的股票代码。");
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    try {
+      await apiFetch<WatchlistItem>("/api/watchlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, note: noteInput }),
+      });
+      setCodeInput("");
+      setNoteInput("");
+      await loadWatchlist();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "添加自选股失败。");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (code: string) => {
+    if (!window.confirm(`确认删除自选股 ${code} 吗？`)) {
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    try {
+      await apiFetch<{ code: string }>(`/api/watchlist?code=${encodeURIComponent(code)}`, {
+        method: "DELETE",
+      });
+      if (activeCode === code) {
+        onClearActive?.();
+      }
+      await loadWatchlist();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "删除自选股失败。");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleMove = async (index: number, offset: -1 | 1) => {
+    const targetIndex = index + offset;
+    if (targetIndex < 0 || targetIndex >= items.length) {
+      return;
+    }
+
+    const nextItems = [...items];
+    [nextItems[index], nextItems[targetIndex]] = [
+      nextItems[targetIndex],
+      nextItems[index],
+    ];
+    setItems(nextItems);
+    setError(null);
+
+    try {
+      const ordered = await apiFetch<WatchlistItem[]>("/api/watchlist", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ codes: nextItems.map((item) => item.code) }),
+      });
+      setItems(ordered);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "排序保存失败。");
+      await loadWatchlist();
+    }
+  };
+
+  const startEdit = (item: WatchlistItem) => {
+    setEditingCode(item.code);
+    setEditingNote(item.note ?? "");
+  };
+
+  const cancelEdit = () => {
+    setEditingCode(null);
+    setEditingNote("");
+  };
+
+  const saveNote = async () => {
+    if (!editingCode) {
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    try {
+      await apiFetch<WatchlistItem>("/api/watchlist", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: editingCode, note: editingNote }),
+      });
+      await loadWatchlist();
+      cancelEdit();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "备注保存失败。");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSelect = (code: string) => {
+    setError(null);
+    onSelect(code);
+  };
+
   return (
     <section className="rounded-xl border bg-white p-4 shadow-sm">
-      <div className="mb-3">
+      <div className="mb-3 flex items-center justify-between">
         <h2 className="text-lg font-semibold">自选股</h2>
+        <span className="text-xs text-muted-foreground">共 {items.length} 只</span>
       </div>
-      <p className="text-sm text-muted-foreground">自选股面板占位，等待后续功能分支接入。</p>
+
+      {error ? (
+        <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {error}
+          <button
+            type="button"
+            className="ml-2 text-red-400 hover:text-red-600"
+            onClick={() => setError(null)}
+            aria-label="关闭错误提示"
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
+
+      <form onSubmit={handleAdd} className="mb-4 flex flex-col gap-2">
+        <div className="flex gap-2">
+          <input
+            value={codeInput}
+            onChange={(event) => setCodeInput(event.target.value)}
+            placeholder="输入 6 位代码，如 600519"
+            className="min-w-0 flex-1 rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+            aria-label="自选股代码"
+          />
+          <input
+            value={noteInput}
+            onChange={(event) => setNoteInput(event.target.value)}
+            placeholder="备注（可选）"
+            className="min-w-0 flex-1 rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+            aria-label="自选股备注"
+          />
+        </div>
+        <Button type="submit" disabled={saving || !codeInput.trim()}>
+          {saving ? "保存中..." : "添加自选股"}
+        </Button>
+      </form>
+
+      {loading ? (
+        <p className="text-sm text-muted-foreground">自选股加载中...</p>
+      ) : items.length === 0 ? (
+        <p className="text-sm text-muted-foreground">暂无自选股，先添加一只试试。</p>
+      ) : (
+        <ul className="space-y-2">
+          {items.map((item, index) => {
+            const isActive = activeCode === item.code;
+            const isEditing = editingCode === item.code;
+            return (
+              <li
+                key={item.code}
+                className={`rounded-lg border p-2 ${
+                  isActive
+                    ? "border-primary bg-primary/5 ring-1 ring-primary"
+                    : "border-border bg-background"
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 rounded-md px-2 py-1 text-left hover:bg-accent"
+                    onClick={() => handleSelect(item.code)}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{item.name}</span>
+                      <span className="text-sm text-muted-foreground">{item.code}</span>
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                        {exchangeLabel(item.exchange)}
+                      </span>
+                    </div>
+                    {item.note ? (
+                      <p className="mt-1 truncate text-xs text-muted-foreground">
+                        {item.note}
+                      </p>
+                    ) : null}
+                  </button>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      className="rounded border px-1.5 py-1 text-xs hover:bg-accent disabled:opacity-40"
+                      disabled={index === 0}
+                      onClick={() => void handleMove(index, -1)}
+                      aria-label={`上移 ${item.code}`}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded border px-1.5 py-1 text-xs hover:bg-accent disabled:opacity-40"
+                      disabled={index === items.length - 1}
+                      onClick={() => void handleMove(index, 1)}
+                      aria-label={`下移 ${item.code}`}
+                    >
+                      ↓
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded border px-2 py-1 text-xs hover:bg-accent"
+                      onClick={() => startEdit(item)}
+                    >
+                      备注
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded border px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                      disabled={saving}
+                      onClick={() => void handleDelete(item.code)}
+                    >
+                      删除
+                    </button>
+                  </div>
+                </div>
+                {isEditing ? (
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      value={editingNote}
+                      onChange={(event) => setEditingNote(event.target.value)}
+                      className="min-w-0 flex-1 rounded-md border px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-primary"
+                      aria-label={`编辑 ${item.code} 备注`}
+                    />
+                    <button
+                      type="button"
+                      className="rounded border px-2 py-1 text-xs hover:bg-accent"
+                      disabled={saving}
+                      onClick={() => void saveNote()}
+                    >
+                      保存
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded border px-2 py-1 text-xs hover:bg-accent"
+                      onClick={cancelEdit}
+                    >
+                      取消
+                    </button>
+                  </div>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </section>
   );
 }

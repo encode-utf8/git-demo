@@ -144,6 +144,29 @@ export default function Home() {
     [loadConversations, loadObservability],
   );
 
+  /** 自选股切换：直接复用主查询链路，确保盘面、资讯、对话全链路一致。 */
+  const handleWatchlistSelect = useCallback(
+    (nextCode: string) => {
+      setInput(nextCode);
+      void refreshStock(nextCode);
+    },
+    [refreshStock],
+  );
+
+  /** 删除当前自选股时清空已选盘面，避免继续展示已移除股票。 */
+  const handleWatchlistClear = useCallback(() => {
+    setCode(null);
+    setStock(null);
+    setQuote(null);
+    setKlines([]);
+    setIndicators(null);
+    setNews([]);
+    setReports([]);
+    setConversations([]);
+    setMessages([]);
+    setConversationId(undefined);
+  }, []);
+
   useEffect(() => {
     const timer = setTimeout(() => void refreshStock("600519"), 0);
     return () => clearTimeout(timer);
@@ -404,8 +427,12 @@ export default function Home() {
           observability={observability}
           onRefresh={() => void loadObservability()}
         />
-        <WatchlistPanel />
-        <ReplayPanel />
+        <WatchlistPanel
+          activeCode={code}
+          onSelect={handleWatchlistSelect}
+          onClearActive={handleWatchlistClear}
+        />
+        <ReplayPanel key={code ?? "none"} code={code} />
         <DataSourcePanel />
         <DisclaimerFooter quote={quote} />
       </div>

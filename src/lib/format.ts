@@ -23,3 +23,17 @@ export function freshnessText(value: string): string {
   const hours = Math.floor(minutes / 60);
   return `${hours} 小时前`;
 }
+
+/** 将行情来源标识统一转换为中文展示文案。 */
+export function sourceLabel(source: string): string {
+  if (source === "akshare") {
+    return "AkShare 实时行情";
+  }
+  if (source === "tencent") {
+    return "腾讯实时行情";
+  }
+  if (source === "deterministic-fallback") {
+    return "确定性降级数据";
+  }
+  return source;
+}
