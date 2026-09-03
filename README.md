@@ -28,12 +28,20 @@ corepack pnpm install
 ## 启动
 
 ```bash
+# Windows 一键启动
+./start.ps1
+
+# Linux 一键启动
+./start.sh
+
 # Web（http://127.0.0.1:3000）
 corepack pnpm dev
 
 # 行情侧车（http://127.0.0.1:8000）
 python -m uvicorn app.main:app --app-dir data-service --host 127.0.0.1 --port 8000
 ```
+
+一键启动脚本会自动准备 `.env`、安装前端依赖、创建/复用 Python 环境，并同时启动 Web 与行情侧车；未配置 DeepSeek/Tavily/DATABASE_URL 时可降级运行，但资讯、AI 报告和持久化会使用演示/内存实现。
 
 健康检查：
 
