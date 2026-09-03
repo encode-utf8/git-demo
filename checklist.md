@@ -85,3 +85,25 @@ corepack pnpm build
 - 完成日期：2026-09-01
 - 结果：install、typecheck、lint、build 全部通过
 - 备注：等待主控合并到 main。
+
+
+## M6-M8 P7 集成验收（已完成，2026-09-03）
+
+- 关联文档：`docs/plan.md`、`docs/next-phase-dev-plan.md`、`docs/design.md`
+- 分支：`feature/p7-base`、`feature/p7-watchlist`、`feature/p7-replay`、`feature/p7-datasource-scheduler-dashboard`、`feature/p7-integration`
+- 目标：完成 P7 里程碑 M6-M8，并确认 M1-M5 无回归
+
+### 验收项
+
+- [x] M6 自选股：添加、删除、排序、备注与切换 3 只以上正常，刷新可恢复，切换后全链路股票一致
+- [x] M7 历史复盘：`/api/replay/stats` 与 `/api/replay/timeline` 可回看，统计口径清晰，仅学习用途且无收益承诺
+- [x] M8 数据源健康：四类数据源状态与降级原因可见，手动 refresh/cleanup 后 `job_runs` 可查
+- [x] M1-M5 回归：health/stock/quote/kline/indicators/news/reports/conversations/observability 均正常
+- [x] `corepack pnpm typecheck`、`lint`、`build` 全部通过
+- [x] 未提交真实密钥，密钥仅保留在 `.env.example` 的占位值
+
+### 完成记录
+
+- 完成日期：2026-09-03
+- 结果：M6-M8 全部通过，M1-M5 无回归，typecheck、lint、build 通过
+- 详细记录：`docs/checklists/07-feature-datasource-scheduler-dashboard.md`、`docs/checklists/08-feature-p7-integration.md`

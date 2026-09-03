@@ -11,6 +11,7 @@
 
 - 初始基线：仓库当时只有 `docs/spec.md`、`docs/design.md`、`docs/plan.md`，尚无业务代码。
 - 当前状态：P1–P6 已全部完成并合并到 `main`，M1–M5 验收通过；本文档中的 Agent 0–E 已执行完毕。
+- P7 后续迭代：M6-M8 已完成并合并到 `main`，验收记录见 `docs/checklists/07-feature-datasource-scheduler-dashboard.md`、`docs/checklists/08-feature-p7-integration.md`。
 - 根目录曾存在一个多余文件 `demo copy.ts`，已在工程初始化阶段清理。
 - 后续开发编排、Agent 提示词与 worktree 命令见 `docs/next-phase-dev-plan.md`。
 
