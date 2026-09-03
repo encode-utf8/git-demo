@@ -107,3 +107,36 @@ corepack pnpm build
 - 完成日期：2026-09-03
 - 结果：M6-M8 全部通过，M1-M5 无回归，typecheck、lint、build 通过
 - 详细记录：`docs/checklists/07-feature-datasource-scheduler-dashboard.md`、`docs/checklists/08-feature-p7-integration.md`
+
+
+## 一键启动脚本验收（2026-09-03）
+
+- 关联文档：`README.md`
+- 分支：`feature/one-click-launch`
+- 目标：为 Windows/Linux 个人本地使用提供一键启动脚本，A 股行情可无密钥降级启动
+
+### 验收项
+
+- [x] Windows 脚本 `start.ps1` 存在，可检查 Node.js、pnpm、`.env`、Python 环境
+- [x] Linux 脚本 `start.sh` 存在，可检查 Node.js、pnpm、`.env`、Python 环境
+- [x] 脚本能优先复用 conda 的 `stock-analysis` 环境或本地 `.venv`
+- [x] 脚本会安装行情侧车基础依赖，并可选安装 AkShare
+- [x] 脚本会启动 `127.0.0.1:8000` 行情侧车并等待健康检查
+- [x] 脚本会启动 `127.0.0.1:3000` Web 前端并支持 Ctrl+C 清理
+- [x] `.logs/` 日志目录已加入 `.gitignore`
+- [x] `README.md` 已补充一键启动用法
+- [x] `start.ps1` PowerShell 语法检查通过
+- [x] `start.sh` Bash 语法检查通过
+- [ ] 未提交真实密钥，仅使用 `.env.example` 占位值
+
+### 验证方式
+
+- Windows：`powershell -NoProfile -ExecutionPolicy Bypass -File ./start.ps1`
+- Linux：`./start.sh`
+- 健康检查：`GET http://127.0.0.1:8000/health`、`GET http://127.0.0.1:3000/api/health`
+
+### 完成记录
+
+- 完成日期：2026-09-03
+- 结果：脚本已创建并完成语法检查；真实端到端启动需在目标系统验证
+- 遗留事项：AkShare 为可选依赖，失败时仍通过 Tencent 行情提供沪深 A 股真实数据
