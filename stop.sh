@@ -30,10 +30,20 @@ stop_port() {
   done
 }
 
+kill_matching() {
+  local pattern="$1"
+  if command -v pkill >/dev/null 2>&1; then
+    pkill -f "$pattern" >/dev/null 2>&1 || true
+  fi
+}
+
 printf '[终止] 清理行情侧车 PID 文件...\n'
 rm -f "$ROOT/.logs/data-service.pid"
 
 stop_port 8000 "行情侧车"
 stop_port 3000 "Web 前端"
+
+kill_matching "$ROOT.*next dev"
+kill_matching "uvicorn app.main:app.*--port 8000"
 
 printf '\n[完成] 已终止 Web 前端与行情侧车。\n'
