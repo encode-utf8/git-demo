@@ -131,7 +131,7 @@ corepack pnpm build
 
 ### 验证方式
 
-- Windows：`powershell -NoProfile -ExecutionPolicy Bypass -File ./start.ps1`
+- Windows：`start.bat` 或 `powershell -NoProfile -ExecutionPolicy Bypass -File ./start.ps1`
 - Linux：`./start.sh`
 - 健康检查：`GET http://127.0.0.1:8000/health`、`GET http://127.0.0.1:3000/api/health`
 
@@ -140,3 +140,35 @@ corepack pnpm build
 - 完成日期：2026-09-03
 - 结果：脚本已创建并完成语法检查；真实端到端启动需在目标系统验证
 - 遗留事项：AkShare 为可选依赖，失败时仍通过 Tencent 行情提供沪深 A 股真实数据
+
+
+## Windows bat 入口更新验收（2026-09-03）
+
+- 关联文档：`README.md`
+- 分支：`feature/bat-launch`
+- 目标：将 Windows 推荐入口从 PowerShell 调整为更易双击执行的 `start.bat`
+
+### 验收项
+
+- [x] 新增 `start.bat`，作为 Windows 一键启动推荐入口
+- [x] `start.bat` 支持 `--skip-install`、`--no-browser` 参数
+- [x] `start.bat` 会检查 Node.js、pnpm/corepack、`.env` 与前端依赖
+- [x] 新增 `scripts/start-data.ps1` 助手，负责 Python 环境、依赖安装与行情侧车启动
+- [x] `start.bat` 在 Web 退出后会清理行情侧车进程
+- [x] `package.json` 的 `start:win` 改为 `cmd /c start.bat`
+- [x] `README.md` 已将 `start.bat` 标为 Windows 推荐方式
+- [x] `start.bat` 基础语法检查通过
+- [x] `scripts/start-data.ps1` PowerShell 语法检查通过
+- [ ] 未提交真实密钥，仅使用 `.env.example` 占位值
+
+### 验证方式
+
+- Windows 双击：直接运行 `start.bat`
+- Windows 命令：`pnpm start:win`
+- 健康检查：`GET http://127.0.0.1:8000/health`、`GET http://127.0.0.1:3000/api/health`
+
+### 完成记录
+
+- 完成日期：2026-09-03
+- 结果：bat 入口与助手脚本已创建并完成语法检查
+- 遗留事项：真实端到端启动依赖目标 Windows 环境的 Node.js、Python 与网络条件

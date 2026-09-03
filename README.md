@@ -28,7 +28,10 @@ corepack pnpm install
 ## 启动
 
 ```bash
-# Windows 一键启动
+# Windows 一键启动（推荐）
+start.bat
+
+# Windows 备选入口
 ./start.ps1
 
 # Linux 一键启动
@@ -41,7 +44,7 @@ corepack pnpm dev
 python -m uvicorn app.main:app --app-dir data-service --host 127.0.0.1 --port 8000
 ```
 
-一键启动脚本会自动准备 `.env`、安装前端依赖、创建/复用 Python 环境，并同时启动 Web 与行情侧车；未配置 DeepSeek/Tavily/DATABASE_URL 时可降级运行，但资讯、AI 报告和持久化会使用演示/内存实现。
+Windows 推荐使用 `start.bat`，可直接双击或运行 `pnpm start:win`。一键启动脚本会自动准备 `.env`、安装前端依赖、创建/复用 Python 环境，并同时启动 Web 与行情侧车；未配置 DeepSeek/Tavily/DATABASE_URL 时可降级运行，但资讯、AI 报告和持久化会使用演示/内存实现。
 
 健康检查：
 
