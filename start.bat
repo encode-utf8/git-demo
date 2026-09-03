@@ -4,11 +4,13 @@ setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
 set "SKIP_INSTALL="
+set "FORCE_INSTALL="
 set "NO_BROWSER="
 
 :parse_args
 if "%~1"=="" goto args_done
 if /i "%~1"=="--skip-install" set "SKIP_INSTALL=1"
+if /i "%~1"=="--install" set "FORCE_INSTALL=1"
 if /i "%~1"=="--no-browser" set "NO_BROWSER=1"
 shift
 goto parse_args
@@ -20,11 +22,13 @@ echo [启动] 检查 Node.js 版本...
 where node >nul 2>nul
 if errorlevel 1 (
   echo 未检测到 Node.js，请先安装 Node.js 20+。
+  pause
   exit /b 1
 )
 for /f "delims=." %%v in ('node -p "process.versions.node.split('.')[0]"') do set "NODE_MAJOR=%%v"
 if !NODE_MAJOR! LSS 20 (
   echo Node.js 版本过低，请升级到 Node.js 20+。
+  pause
   exit /b 1
 )
 
@@ -36,6 +40,7 @@ if not defined PNPM_RUNNER (
   where corepack >nul 2>nul
   if errorlevel 1 (
     echo 未检测到 pnpm 或 corepack，请安装 pnpm 后重试。
+    pause
     exit /b 1
   )
   set "PNPM_RUNNER=corepack pnpm"
@@ -47,6 +52,10 @@ if not exist ".env" (
 )
 
 if defined SKIP_INSTALL goto install_done
+if defined FORCE_INSTALL goto install_run
+if exist "node_modules\.pnpm" goto install_done
+
+:install_run
 echo [启动] 安装/校验前端依赖...
 if "%PNPM_RUNNER%"=="pnpm" (
   call pnpm install --frozen-lockfile
@@ -55,6 +64,7 @@ if "%PNPM_RUNNER%"=="pnpm" (
 )
 if errorlevel 1 (
   echo pnpm 依赖安装失败。
+  pause
   exit /b 1
 )
 :install_done
@@ -63,6 +73,7 @@ echo [启动] 启动行情侧车...
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start-data.ps1"
 if errorlevel 1 (
   echo 行情侧车启动失败。
+  pause
   exit /b 1
 )
 
@@ -79,6 +90,7 @@ for /l %%i in (1,1,60) do (
 if not defined DATA_HEALTHY (
   echo 行情侧车健康检查失败，请查看 .logs\data-service.err.log
   powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start-data.ps1" -Stop
+  pause
   exit /b 1
 )
 

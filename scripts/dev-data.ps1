@@ -3,7 +3,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$condaCommand = Get-Command conda -ErrorAction SilentlyContinue
+$condaCommand = Get-Command conda.exe -ErrorAction SilentlyContinue
 $envPython = $null
 
 if ($condaCommand) {

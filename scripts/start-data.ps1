@@ -26,8 +26,8 @@ if ($Stop) {
 
 $pythonExe = $null
 
-if (Get-Command conda -ErrorAction SilentlyContinue) {
-    $condaSource = (Get-Command conda -ErrorAction SilentlyContinue).Source
+if (Get-Command conda.exe -ErrorAction SilentlyContinue) {
+    $condaSource = (Get-Command conda.exe -ErrorAction SilentlyContinue).Source
     $condaBase = Split-Path (Split-Path $condaSource -Parent) -Parent
     $candidate = Join-Path $condaBase "envs\stock-analysis\python.exe"
     if (Test-Path -LiteralPath $candidate) {

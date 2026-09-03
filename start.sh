@@ -18,6 +18,7 @@ warn() {
 }
 
 SKIP_INSTALL="${SKIP_INSTALL:-0}"
+FORCE_INSTALL="${FORCE_INSTALL:-0}"
 NO_BROWSER="${NO_BROWSER:-0}"
 
 while [[ $# -gt 0 ]]; do
@@ -26,13 +27,18 @@ while [[ $# -gt 0 ]]; do
       SKIP_INSTALL=1
       shift
       ;;
+    --install)
+      FORCE_INSTALL=1
+      shift
+      ;;
     --no-browser)
       NO_BROWSER=1
       shift
       ;;
     -h|--help)
-      echo "用法：./start.sh [--skip-install] [--no-browser]"
+      echo "用法：./start.sh [--skip-install] [--install] [--no-browser]"
       echo "  --skip-install  跳过前端依赖安装检查"
+      echo "  --install       强制重新安装/校验前端依赖"
       echo "  --no-browser    启动后不自动打开浏览器"
       exit 0
       ;;
@@ -79,9 +85,13 @@ if [[ ! -f .env ]]; then
   warn "已复制 .env.example 为 .env。未填写外部密钥时，系统会自动使用降级/演示数据。"
 fi
 
-if [[ "$SKIP_INSTALL" != "1" ]]; then
+if [[ "$SKIP_INSTALL" == "1" ]]; then
+  :
+elif [[ "$FORCE_INSTALL" == "1" || ! -d "$ROOT/node_modules/.pnpm" ]]; then
   step "安装/校验前端依赖..."
   run_pnpm install --frozen-lockfile
+else
+  step "已检测到前端依赖，跳过安装（需要强制安装请使用 --install）..."
 fi
 
 step "定位 Python 行情侧车运行环境..."

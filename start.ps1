@@ -1,6 +1,7 @@
 ﻿[CmdletBinding()]
 param(
     [switch]$SkipInstall,
+    [switch]$Install,
     [switch]$NoBrowser
 )
 
@@ -60,16 +61,28 @@ if (-not (Test-Path -LiteralPath ".env")) {
     Write-Host "  已复制 .env.example 为 .env。未填写外部密钥时，系统会自动使用降级/演示数据。" -ForegroundColor Yellow
 }
 
-if (-not $SkipInstall) {
+$nodeModulesMarker = Join-Path $root "node_modules\.pnpm"
+$shouldInstall = $false
+if ($SkipInstall) {
+    $shouldInstall = $false
+} elseif ($Install) {
+    $shouldInstall = $true
+} else {
+    $shouldInstall = -not (Test-Path -LiteralPath $nodeModulesMarker)
+}
+
+if ($shouldInstall) {
     Write-Step "安装/校验前端依赖..."
     Invoke-Pnpm install --frozen-lockfile
+} else {
+    Write-Step "已检测到前端依赖，跳过安装（需要强制安装请使用 --install）..."
 }
 
 Write-Step "定位 Python 行情侧车运行环境..."
 $pythonExe = $null
 
-if (Test-Command "conda") {
-    $condaSource = (Get-Command conda -ErrorAction SilentlyContinue).Source
+if (Test-Command "conda.exe") {
+    $condaSource = (Get-Command conda.exe -ErrorAction SilentlyContinue).Source
     $condaBase = Split-Path (Split-Path $condaSource -Parent) -Parent
     $candidate = Join-Path $condaBase "envs\stock-analysis\python.exe"
     if (Test-Path -LiteralPath $candidate) {
