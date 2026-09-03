@@ -7,7 +7,7 @@
     "dev": "next dev",
     "dev:data": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/dev-data.ps1",
     "dev:all": "concurrently -n web,data -c cyan,green \"pnpm dev\" \"pnpm dev:data\"",
-    "start:win": "powershell -NoProfile -ExecutionPolicy Bypass -File ./start.ps1",
+    "start:win": "cmd /c start.bat",
     "start:linux": "bash ./start.sh",
     "build": "next build",
     "start": "next start",
