@@ -9,15 +9,23 @@
 - 对话：SSE 流式输出、多轮上下文、工具调用与来源引用。
 - 持久化与清理：TTL 缓存复用、资讯软删除、任务日志与可观测性指标。
 - 降级：未配置外部密钥时自动使用确定性演示数据，并明确标注来源与更新时间。
+- 自选股：支持增删、备注、排序；数据库不可用时自动回退到本地 `.data/watchlist.json`，重启不丢失。
 
 ## 技术栈
 
 - Web/Agent：Next.js App Router + TypeScript + Tailwind CSS + shadcn/ui
-- 行情侧车：Python 3.12 + FastAPI
+- 行情侧车：Python 3.12 + FastAPI + AkShare/Tencent
 - 数据库：Drizzle ORM + Supabase/Neon PostgreSQL
 - 包管理：Node 20+，pnpm
 
-## 环境准备
+## 环境要求
+
+- Node.js 20+
+- pnpm，或可用的 `corepack`
+- Python 3.12+（一键启动脚本会优先使用 `stock-analysis` conda 环境或项目 `.venv`）
+- 可选外部服务：DeepSeek、Tavily、Supabase/Neon PostgreSQL、Cloudflare R2
+
+## 快速开始
 
 ```bash
 cp .env.example .env
@@ -25,37 +33,134 @@ corepack enable
 corepack pnpm install
 ```
 
-## 启动
+Windows 推荐双击 `start.bat`，或在项目根目录运行：
+
+```bat
+start.bat
+```
+
+Linux/macOS：
 
 ```bash
-# Windows 一键启动（推荐）
-start.bat
-
-# Windows 备选入口
-./start.ps1
-
-# Linux 一键启动
+chmod +x start.sh
 ./start.sh
+```
 
-# Web（http://127.0.0.1:3000）
+启动后访问：
+
+- Web 前端：http://127.0.0.1:3000
+- 行情侧车健康检查：http://127.0.0.1:8000/health
+
+## 启动参数
+
+| 参数 | 作用 |
+| --- | --- |
+| `--skip-install` | 跳过前端依赖安装检查 |
+| `--install` | 强制重新安装/校验前端依赖 |
+| `--no-browser` | 启动后不自动打开浏览器 |
+
+Windows `start.ps1` 使用 PowerShell 参数风格：
+
+```powershell
+./start.ps1 -Install -NoBrowser
+```
+
+Linux/macOS `start.sh` 使用长参数风格：
+
+```bash
+./start.sh --install --no-browser
+```
+
+## 停止服务
+
+Windows：
+
+```bat
+stop.bat
+```
+
+Linux/macOS：
+
+```bash
+chmod +x stop.sh
+./stop.sh
+```
+
+终止脚本会按端口 `3000`、`8000` 以及项目进程命令行特征停止完整进程树，包括 `next dev` 和 `uvicorn --reload` 的子进程。
+
+## 手动开发启动
+
+```bash
 corepack pnpm dev
+```
 
-# 行情侧车（http://127.0.0.1:8000）
+行情侧车单独启动（Windows PowerShell）：
+
+```powershell
+corepack pnpm dev:data
+```
+
+同时启动 Web 与行情侧车（依赖 PowerShell，适用于 Windows）：
+
+```powershell
+corepack pnpm dev:all
+```
+
+Linux/macOS 建议使用 `./start.sh`，或手动启动行情侧车：
+
+```bash
 python -m uvicorn app.main:app --app-dir data-service --host 127.0.0.1 --port 8000
 ```
 
-Windows 推荐使用 `start.bat`，可直接双击或运行 `pnpm start:win`。一键启动脚本会自动准备 `.env`、安装前端依赖、创建/复用 Python 环境，并同时启动 Web 与行情侧车；未配置 DeepSeek/Tavily/DATABASE_URL 时可降级运行，但资讯、AI 报告和持久化会使用演示/内存实现。
+## 环境变量
 
-健康检查：
+复制 `.env.example` 为 `.env` 后按需填写：
 
-- `GET http://127.0.0.1:3000/api/health`
-- `GET http://127.0.0.1:8000/health`
+| 变量 | 是否必需 | 说明 |
+| --- | --- | --- |
+| `DEEPSEEK_API_KEY` | 可选 | DeepSeek LLM 密钥；未配置时 AI 报告使用本地确定性报告 |
+| `DEEPSEEK_BASE_URL` | 可选 | OpenAI 兼容接口地址，默认 `https://api.deepseek.com` |
+| `DEEPSEEK_MODEL` | 可选 | 默认 `deepseek-chat` |
+| `TAVILY_API_KEY` | 可选 | 外部资讯搜索；未配置时使用确定性资讯 |
+| `DATABASE_URL` | 可选 | PostgreSQL 连接串；未配置时使用内存，自选股使用本地文件回退 |
+| `R2_ACCOUNT_ID` | 可选 | Cloudflare R2 账户 ID |
+| `R2_ACCESS_KEY_ID` | 可选 | R2 访问密钥 |
+| `R2_SECRET_ACCESS_KEY` | 可选 | R2 访问密钥 |
+| `R2_BUCKET_NAME` | 可选 | R2 桶名称 |
+| `R2_PUBLIC_URL` | 可选 | R2 公共访问地址 |
+| `DATA_SERVICE_URL` | 可选 | 行情侧车地址，默认 `http://127.0.0.1:8000` |
+
+> `DATABASE_URL` 未携带端口时会自动补默认端口 `5432`，兼容部分 Neon/Supabase 连接串。
+
+## 数据与降级
+
+- 未配置 `DATABASE_URL` 时，分析报告、资讯、会话等使用进程内内存；自选股会写入 `.data/watchlist.json`，重启后仍保留。
+- 未配置 `TAVILY_API_KEY` 时，资讯使用本地演示数据。
+- 未配置 `DEEPSEEK_API_KEY` 或模型输出未包含具体行情/资讯数据时，AI 分析自动回退到包含最新价、K 线和指标的教学式报告。
+- R2 快照写入有超时保护，失败不会阻塞主流程。
+- 本地生成文件 `.env`、`.logs/`、`.data/` 不会提交到仓库。
 
 ## 常用命令
 
-- `corepack pnpm typecheck`：TypeScript 类型检查
-- `corepack pnpm lint`：ESLint
-- `corepack pnpm dev`：启动 Web 开发服务
+```bash
+corepack pnpm typecheck
+corepack pnpm lint
+corepack pnpm build
+corepack pnpm dev
+```
+
+数据库相关命令仅在配置真实 `DATABASE_URL` 后使用：
+
+```bash
+corepack pnpm db:generate
+corepack pnpm db:migrate
+corepack pnpm db:studio
+```
+
+## 健康检查
+
+- `GET http://127.0.0.1:3000/api/health`
+- `GET http://127.0.0.1:8000/health`
 
 ## 免责声明
 
