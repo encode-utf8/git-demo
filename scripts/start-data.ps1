@@ -90,4 +90,20 @@ $dataArgs = @(
 
 $dataProcess = Start-Process -FilePath $pythonExe -ArgumentList $dataArgs -WorkingDirectory $root -RedirectStandardOutput $dataLog -RedirectStandardError $dataErr -PassThru -WindowStyle Hidden
 Set-Content -LiteralPath $pidFile -Value $dataProcess.Id
+
+$parentPid = (Get-CimInstance Win32_Process -Filter "ProcessId=$PID").ParentProcessId
+$watchFile = Join-Path $logsDir "watch-data.ps1"
+$watchContent = @"
+`$parentPid = $parentPid
+`$dataPid = $($dataProcess.Id)
+`$pidFile = '$pidFile'
+while (Get-Process -Id `$parentPid -ErrorAction SilentlyContinue) {
+    Start-Sleep -Seconds 2
+}
+Stop-Process -Id `$dataPid -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath `$pidFile -Force -ErrorAction SilentlyContinue
+"@
+Set-Content -LiteralPath $watchFile -Value $watchContent -Encoding UTF8
+Start-Process -FilePath "powershell" -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $watchFile) -WindowStyle Hidden
+
 Write-Output $dataProcess.Id

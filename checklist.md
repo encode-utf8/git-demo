@@ -155,6 +155,7 @@ corepack pnpm build
 - [x] `start.bat` 会检查 Node.js、pnpm/corepack、`.env` 与前端依赖
 - [x] 新增 `scripts/start-data.ps1` 助手，负责 Python 环境、依赖安装与行情侧车启动
 - [x] `start.bat` 在 Web 退出后会清理行情侧车进程
+- [x] 行情侧车带看护进程，Ctrl+C 终止 bat 后仍会自动清理 Python 进程
 - [x] `package.json` 的 `start:win` 改为 `cmd /c start.bat`
 - [x] `README.md` 已将 `start.bat` 标为 Windows 推荐方式
 - [x] `start.bat` 基础语法检查通过
@@ -170,5 +171,5 @@ corepack pnpm build
 ### 完成记录
 
 - 完成日期：2026-09-03
-- 结果：bat 入口与助手脚本已创建并完成语法检查
+- 结果：bat 入口与助手脚本已创建并完成语法与端到端启动检查
 - 遗留事项：真实端到端启动依赖目标 Windows 环境的 Node.js、Python 与网络条件
