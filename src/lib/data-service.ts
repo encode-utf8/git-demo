@@ -8,9 +8,9 @@ import type {
 } from "@/lib/shared/types";
 
 const DEFAULT_DATA_SERVICE_URL = "http://127.0.0.1:8000";
-const REQUEST_TIMEOUT_MS = 12000;
-const QUOTE_TIMEOUT_MS = 10000;
-const KLINE_TIMEOUT_MS = 20000;
+const REQUEST_TIMEOUT_MS = 6_000;
+const QUOTE_TIMEOUT_MS = 3_000;
+const KLINE_TIMEOUT_MS = 5_000;
 
 /** 获取侧车地址，读取环境变量或使用默认值。 */
 function dataServiceUrl(): string {

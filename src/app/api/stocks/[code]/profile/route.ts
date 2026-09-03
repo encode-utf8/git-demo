@@ -6,7 +6,7 @@ import type { NextRequest } from "next/server";
 
 type RouteContext = { params: Promise<{ code: string }> };
 
-// GET /api/stocks/:code：股票元数据与市场识别。
+// GET /api/stocks/:code/profile：股票元数据与市场识别。
 export async function GET(_request: NextRequest, context: RouteContext) {
   const rawCode = (await context.params).code;
   const code = normalizeStockCode(rawCode);

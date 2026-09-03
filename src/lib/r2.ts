@@ -22,6 +22,28 @@ interface R2Config {
 
 let client: S3Client | null = null;
 
+/** R2 快照写入硬超时，避免远端对象存储不可达时阻塞主流程。 */
+const SNAPSHOT_TIMEOUT_MS = 3_000;
+
+/** 给 Promise 增加硬超时；超时后仅停止等待，不取消底层网络请求。 */
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`R2 操作超时（${timeoutMs / 1000} 秒）`));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+
 /** 校验并读取 R2 配置；缺失或格式错误时抛出明确错误。 */
 function getR2Config(): R2Config {
   const accountId = process.env.R2_ACCOUNT_ID ?? "";
@@ -156,7 +178,7 @@ export async function saveAnalysisSnapshot(report: AnalysisReport): Promise<stri
   }
   try {
     const key = `analysis/${report.code}/${report.id}.json`;
-    await putJsonObject(key, report);
+    await withTimeout(putJsonObject(key, report), SNAPSHOT_TIMEOUT_MS);
     return key;
   } catch {
     recordExternalCall(false);
@@ -171,7 +193,7 @@ export async function saveNewsSnapshot(code: string, items: NewsItem[]): Promise
   }
   try {
     const key = `news/${code}/${Date.now()}.json`;
-    await putJsonObject(key, items);
+    await withTimeout(putJsonObject(key, items), SNAPSHOT_TIMEOUT_MS);
     return key;
   } catch {
     recordExternalCall(false);

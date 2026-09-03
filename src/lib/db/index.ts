@@ -31,8 +31,26 @@ function createDb() {
   if (!url) {
     throw new Error("缺少 DATABASE_URL，请复制 .env.example 为 .env 并填写配置。");
   }
-  const client = postgres(url, { max: 1 });
+  const normalizedUrl = normalizePostgresUrl(url);
+  const client = postgres(normalizedUrl, {
+    max: 1,
+    connect_timeout: 5,
+    idle_timeout: 10,
+  });
   return drizzle(client, { schema });
+}
+
+/** 为未携带端口的 PostgreSQL 地址补默认 5432，兼容 Neon/Supabase 连接串。 */
+function normalizePostgresUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (!parsed.port) {
+      parsed.port = "5432";
+    }
+    return parsed.toString();
+  } catch {
+    return url;
+  }
 }
 
 /** 获取数据库客户端；未配置时会抛出明确错误。 */

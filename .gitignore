@@ -39,6 +39,9 @@ next-env.d.ts
 # 一键启动脚本日志
 .logs/
 
+# 本地持久化数据
+.data/
+
 # 系统与编辑器
 .DS_Store
 Thumbs.db

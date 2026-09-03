@@ -53,7 +53,11 @@ export async function getMarketQuote(code: string, forceRefresh = false): Promis
 
     if (!forceRefresh) {
       const saved = await store.marketQuotes.getLatest(code);
-      if (saved && isFresh(saved.fetched_at, QUOTE_TTL_MS)) {
+      if (
+        saved &&
+        saved.source !== "deterministic-fallback" &&
+        isFresh(saved.fetched_at, QUOTE_TTL_MS)
+      ) {
         return saved;
       }
     }
@@ -93,6 +97,7 @@ export async function getKlines(
       const saved = await store.klines.list(code, period, adjust, limit);
       if (
         saved.length > 0 &&
+        saved.every((item) => item.source !== "deterministic-fallback") &&
         saved.every(
           (item) => typeof item.fetched_at === "string" && isFresh(item.fetched_at, ttlMs),
         )

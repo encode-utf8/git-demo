@@ -226,13 +226,107 @@ export function createMemoryStore(): Store {
 /** 默认内存 store 单例。 */
 export const memoryStore: Store = createMemoryStore();
 
-let persistedStore: Store | null = null;
+let resilientStore: Store | null = null;
+
+/** 单次持久化仓库操作的最长等待时间，超时后自动切换到内存实现。 */
+const PERSISTED_OPERATION_TIMEOUT_MS = 2_000;
+
+/** 给数据库操作加超时，避免远端数据库无响应时长时间阻塞页面。 */
+async function withOperationTimeout<T>(
+  operation: Promise<T>,
+  operationName: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(
+            new Error(
+              `数据库操作超时（${PERSISTED_OPERATION_TIMEOUT_MS / 1000} 秒）：${operationName}`,
+            ),
+          );
+        }, PERSISTED_OPERATION_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+/** 单个仓库代理：数据库访问失败一次后，本次运行自动切换到内存实现。 */
+function createRepositoryWithFallback<T extends object>(
+  memoryRepository: T,
+  getPersistedRepository: () => T,
+  fallbackState: { enabled: boolean },
+): T {
+  const handler: ProxyHandler<T> = {
+    get(_target, property, receiver) {
+      const memoryValue = Reflect.get(memoryRepository, property, receiver);
+      if (typeof memoryValue !== "function") {
+        return memoryValue;
+      }
+
+      return async (...args: unknown[]) => {
+        if (fallbackState.enabled) {
+          return Reflect.apply(memoryValue, memoryRepository, args);
+        }
+
+        try {
+          const persistedRepository = getPersistedRepository();
+          const persistedValue = Reflect.get(persistedRepository, property, receiver);
+          return await withOperationTimeout(
+            Promise.resolve(
+              Reflect.apply(
+                persistedValue as (...args: unknown[]) => unknown,
+                persistedRepository,
+                args,
+              ) as Promise<unknown>,
+            ),
+            String(property),
+          );
+        } catch (error) {
+          fallbackState.enabled = true;
+          console.warn("[store] PostgreSQL 访问失败，本次运行已切换为内存存储：", error);
+          return Reflect.apply(memoryValue, memoryRepository, args);
+        }
+      };
+    },
+  };
+
+  return new Proxy(memoryRepository, handler) as T;
+}
+
+/** 创建带故障回退的 Drizzle store，数据库不可用时保证页面仍可运行。 */
+function createResilientStore(): Store {
+  const memory = createMemoryStore();
+  const fallbackState = { enabled: false };
+  let drizzleStore: Store | null = null;
+  const getPersisted = () => {
+    drizzleStore ??= createDrizzleStore();
+    return drizzleStore;
+  };
+
+  return {
+    stocks: createRepositoryWithFallback(memory.stocks, () => getPersisted().stocks, fallbackState),
+    marketQuotes: createRepositoryWithFallback(memory.marketQuotes, () => getPersisted().marketQuotes, fallbackState),
+    klines: createRepositoryWithFallback(memory.klines, () => getPersisted().klines, fallbackState),
+    newsItems: createRepositoryWithFallback(memory.newsItems, () => getPersisted().newsItems, fallbackState),
+    analysisReports: createRepositoryWithFallback(memory.analysisReports, () => getPersisted().analysisReports, fallbackState),
+    conversations: createRepositoryWithFallback(memory.conversations, () => getPersisted().conversations, fallbackState),
+    messages: createRepositoryWithFallback(memory.messages, () => getPersisted().messages, fallbackState),
+    jobRuns: createRepositoryWithFallback(memory.jobRuns, () => getPersisted().jobRuns, fallbackState),
+  };
+}
 
 /** 按环境变量选择真实数据库或内存回退实现。 */
 export function getStore(): Store {
   if (hasRealDatabaseUrl()) {
-    persistedStore ??= createDrizzleStore();
-    return persistedStore;
+    resilientStore ??= createResilientStore();
+    return resilientStore;
   }
   return memoryStore;
 }
