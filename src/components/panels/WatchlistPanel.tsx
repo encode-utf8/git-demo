@@ -15,12 +15,23 @@ interface ApiEnvelope<T> {
 
 /** 读取统一 JSON 响应并抛出可展示错误。 */
 async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
-  const payload = (await response.json().catch(() => null)) as ApiEnvelope<T> | null;
-  if (!payload?.success || payload.data === undefined) {
-    throw new Error(payload?.error?.message ?? "自选股请求失败。");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    const payload = (await response.json().catch(() => null)) as ApiEnvelope<T> | null;
+    if (!payload?.success || payload.data === undefined) {
+      throw new Error(payload?.error?.message ?? "自选股请求失败。");
+    }
+    return payload.data;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("请求超时，请稍后重试。");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
-  return payload.data;
 }
 
 /** 将交易所代码转换为中文标签。 */

@@ -6,6 +6,7 @@ import type { NewsItem } from "@/lib/shared/types";
 
 interface NewsPanelProps {
   news: NewsItem[];
+  loading: boolean;
   analysisLoading: boolean;
   onGenerateAnalysis: () => void;
 }
@@ -13,6 +14,7 @@ interface NewsPanelProps {
 /** 资讯与影响周期面板。 */
 export function NewsPanel({
   news,
+  loading,
   analysisLoading,
   onGenerateAnalysis,
 }: NewsPanelProps) {
@@ -25,7 +27,11 @@ export function NewsPanel({
         </Button>
       </div>
       <div className="space-y-3">
-        {news.map((item) => (
+        {loading && news.length === 0 ? (
+          <p className="text-sm text-muted-foreground">资讯加载中...</p>
+        ) : news.length === 0 ? (
+          <p className="text-sm text-muted-foreground">暂无资讯。</p>
+        ) : news.map((item) => (
           <div key={item.id} className="rounded-lg border p-3">
             <div className="flex items-start justify-between gap-2">
               <a href={item.url} target="_blank" rel="noreferrer" className="font-medium text-primary hover:underline">

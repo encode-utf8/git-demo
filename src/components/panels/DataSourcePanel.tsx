@@ -74,12 +74,23 @@ function jobStatusTone(status: SchedulerJobView["status"]): string {
 }
 
 async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
-  const payload = (await response.json().catch(() => null)) as ApiEnvelope<T> | null;
-  if (!payload?.success || payload.data === undefined) {
-    throw new Error(payload?.error?.message ?? "请求失败");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    const payload = (await response.json().catch(() => null)) as ApiEnvelope<T> | null;
+    if (!payload?.success || payload.data === undefined) {
+      throw new Error(payload?.error?.message ?? "请求失败");
+    }
+    return payload.data;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("请求超时，请稍后重试。");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
-  return payload.data;
 }
 
 /** 数据源健康与调度面板：自取数并支持手动刷新/清理。 */

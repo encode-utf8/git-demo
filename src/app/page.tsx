@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
 import { AnalysisPanel } from "@/components/panels/AnalysisPanel";
@@ -40,17 +40,30 @@ interface ConversationTimeline {
   messages: Message[];
 }
 
+const REQUEST_TIMEOUT_MS = 20_000;
+
 async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
-  const payload = (await response.json().catch(() => null)) as {
-    success?: boolean;
-    data?: T;
-    error?: { message?: string };
-  } | null;
-  if (!payload?.success || payload.data === undefined) {
-    throw new Error(payload?.error?.message ?? "请求失败。");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    const payload = (await response.json().catch(() => null)) as {
+      success?: boolean;
+      data?: T;
+      error?: { message?: string };
+    } | null;
+    if (!payload?.success || payload.data === undefined) {
+      throw new Error(payload?.error?.message ?? "请求失败。");
+    }
+    return payload.data;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("请求超时，请稍后重试。");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
-  return payload.data;
 }
 
 export default function Home() {
@@ -62,6 +75,8 @@ export default function Home() {
   const [indicators, setIndicators] = useState<TechnicalIndicators | null>(null);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [reports, setReports] = useState<AnalysisReport[]>([]);
+  const [newsLoading, setNewsLoading] = useState(false);
+  const [reportsLoading, setReportsLoading] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messages, setMessages] = useState<ChatViewMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | undefined>();
@@ -74,10 +89,16 @@ export default function Home() {
   const [chatLoading, setChatLoading] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [currentTime, setCurrentTime] = useState<string | null>(null);
+  const activeCodeRef = useRef<string | null>(null);
 
   const loadObservability = useCallback(async () => {
-    const data = await apiFetch<ObservabilityData>("/api/admin/observability");
-    setObservability(data);
+    try {
+      const data = await apiFetch<ObservabilityData>("/api/admin/observability");
+      setObservability(data);
+    } catch {
+      setObservability(null);
+    }
   }, []);
 
   const loadConversations = useCallback(async (nextCode: string) => {
@@ -85,10 +106,45 @@ export default function Home() {
       const data = await apiFetch<Conversation[]>(
         `/api/conversations?code=${encodeURIComponent(nextCode)}`,
       );
-      setConversations(data);
+      if (activeCodeRef.current === nextCode) {
+        setConversations(data);
+      }
     } catch {
-      setConversations([]);
+      if (activeCodeRef.current === nextCode) {
+        setConversations([]);
+      }
     }
+  }, []);
+
+  /** 异步加载资讯与历史报告，不阻塞盘面主数据展示；返回资讯供分析流程使用。 */
+  const loadNewsAndReports = useCallback(async (nextCode: string): Promise<NewsItem[]> => {
+    setNewsLoading(true);
+    setReportsLoading(true);
+    const results = await Promise.allSettled([
+      apiFetch<NewsItem[]>(`/api/stocks/${encodeURIComponent(nextCode)}/news`),
+      apiFetch<AnalysisReport[]>(`/api/stocks/${encodeURIComponent(nextCode)}/reports`),
+    ]);
+    if (activeCodeRef.current !== nextCode) {
+      setNewsLoading(false);
+      setReportsLoading(false);
+      return [];
+    }
+
+    const [newsResult, reportsResult] = results;
+    const nextNews = newsResult.status === "fulfilled" ? newsResult.value : [];
+    if (newsResult.status === "fulfilled") {
+      setNews(nextNews);
+    } else {
+      setNews([]);
+    }
+    if (reportsResult.status === "fulfilled") {
+      setReports(reportsResult.value);
+    } else {
+      setReports([]);
+    }
+    setNewsLoading(false);
+    setReportsLoading(false);
+    return nextNews;
   }, []);
 
   const loadChart = useCallback(
@@ -117,31 +173,33 @@ export default function Home() {
   const refreshStock = useCallback(
     async (nextInput: string) => {
       const nextCode = nextInput.trim();
+      activeCodeRef.current = nextCode;
       setLoading(true);
       setError(null);
+      setNews([]);
+      setReports([]);
       try {
-        const [stockData, quoteData, newsData, reportsData] = await Promise.all([
-          apiFetch<Stock>(`/api/stocks/${encodeURIComponent(nextCode)}`),
+        const [stockData, quoteData] = await Promise.all([
+          apiFetch<Stock>(`/api/stocks/${encodeURIComponent(nextCode)}/profile`),
           apiFetch<MarketQuote>(`/api/stocks/${encodeURIComponent(nextCode)}/quote`),
-          apiFetch<NewsItem[]>(`/api/stocks/${encodeURIComponent(nextCode)}/news`),
-          apiFetch<AnalysisReport[]>(`/api/stocks/${encodeURIComponent(nextCode)}/reports`),
         ]);
         setCode(nextCode);
         setStock(stockData);
         setQuote(quoteData);
-        setNews(newsData);
-        setReports(reportsData);
         setMessages([]);
         setConversationId(undefined);
         setConversations([]);
-        await Promise.all([loadConversations(nextCode), loadObservability()]);
+        setLoading(false);
+        void loadConversations(nextCode);
+        void loadObservability();
+        void loadNewsAndReports(nextCode);
       } catch (nextError) {
         setError(nextError instanceof Error ? nextError.message : "股票查询失败。");
       } finally {
         setLoading(false);
       }
     },
-    [loadConversations, loadObservability],
+    [loadConversations, loadNewsAndReports, loadObservability],
   );
 
   /** 自选股切换：直接复用主查询链路，确保盘面、资讯、对话全链路一致。 */
@@ -173,6 +231,13 @@ export default function Home() {
   }, [refreshStock]);
 
   useEffect(() => {
+    const timer = setTimeout(() => {
+      setCurrentTime(new Date().toLocaleString("zh-CN", { hour12: false }));
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
     if (!code) {
       return;
     }
@@ -180,9 +245,12 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, [code, period, adjust, loadChart]);
 
-  const handleSearch = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    void refreshStock(input);
+  const handleSearch = () => {
+    const nextInput = input.trim();
+    if (!nextInput || loading) {
+      return;
+    }
+    void refreshStock(nextInput);
   };
 
   const handleAnalysis = async () => {
@@ -190,7 +258,12 @@ export default function Home() {
       return;
     }
     setAnalysisLoading(true);
+    setError(null);
     try {
+      const latestNews = await loadNewsAndReports(code);
+      if (latestNews.length === 0) {
+        throw new Error("当前没有可用资讯，暂时无法生成 AI 分析。");
+      }
       const report = await apiFetch<AnalysisReport>(`/api/stocks/${code}/analysis`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -363,7 +436,7 @@ export default function Home() {
               </p>
             </div>
             <div className="text-xs text-muted-foreground">
-              当前时间：{new Date().toLocaleString("zh-CN", { hour12: false })}
+              当前时间：{currentTime ?? "正在同步..."}
             </div>
           </div>
         </header>
@@ -401,10 +474,11 @@ export default function Home() {
             <section className="grid gap-4 lg:grid-cols-2">
               <NewsPanel
                 news={news}
+                loading={newsLoading}
                 analysisLoading={analysisLoading}
                 onGenerateAnalysis={() => void handleAnalysis()}
               />
-              <AnalysisPanel reports={reports} />
+              <AnalysisPanel reports={reports} loading={reportsLoading} />
             </section>
             <ChatPanel
               code={code}

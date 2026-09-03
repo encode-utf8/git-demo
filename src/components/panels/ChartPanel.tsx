@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import { formatDateTime, freshnessText } from "@/lib/format";
 import type {
   AdjustType,
@@ -32,6 +34,8 @@ function sourceLabel(source: string): string {
 }
 
 function CandlestickChart({ klines }: { klines: Kline[] }) {
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+
   if (klines.length === 0) {
     return <div className="text-sm text-muted-foreground">暂无 K 线数据。</div>;
   }
@@ -39,44 +43,91 @@ function CandlestickChart({ klines }: { klines: Kline[] }) {
   const width = 900;
   const height = 320;
   const volumeHeight = 70;
-  const padding = 22;
-  const plotHeight = height - padding * 2 - volumeHeight;
+  const paddingLeft = 58;
+  const paddingRight = 18;
+  const paddingTop = 18;
+  const paddingBottom = 22;
+  const plotHeight = height - paddingTop - paddingBottom - volumeHeight;
+  const plotBottom = height - paddingBottom - volumeHeight;
   const minPrice = Math.min(...klines.map((item) => item.low));
   const maxPrice = Math.max(...klines.map((item) => item.high));
   const range = maxPrice - minPrice || 1;
   const volumeMax = Math.max(...klines.map((item) => item.volume));
-  const slot = (width - padding * 2) / klines.length;
+  const slot = (width - paddingLeft - paddingRight) / klines.length;
   const candleWidth = Math.max(2, slot * 0.6);
 
   const yPrice = (price: number) =>
-    padding + ((maxPrice - price) / range) * plotHeight;
+    paddingTop + ((maxPrice - price) / range) * plotHeight;
   const yVolume = (volume: number) =>
-    height - padding - (volume / volumeMax) * volumeHeight;
+    height - paddingBottom - (volume / volumeMax) * volumeHeight;
+  const xCenter = (index: number) => paddingLeft + index * slot + slot / 2;
+
+  const priceTicks = Array.from({ length: 5 }, (_, index) => {
+    const ratio = index / 4;
+    return {
+      ratio,
+      price: maxPrice - range * ratio,
+      y: paddingTop + plotHeight * ratio,
+    };
+  });
+  const hovered = hoveredIndex === null ? null : klines[hoveredIndex];
 
   return (
-    <div className="overflow-x-auto rounded-lg border bg-white p-3">
+    <div className="relative overflow-x-auto rounded-lg border bg-white p-3">
       <svg
         viewBox={`0 0 ${width} ${height}`}
         className="min-w-[720px]"
         role="img"
         aria-label="K 线图"
       >
+        {priceTicks.map((tick) => (
+          <g key={`${tick.price}-${tick.y}`}>
+            <line
+              x1={paddingLeft}
+              x2={width - paddingRight}
+              y1={tick.y}
+              y2={tick.y}
+              stroke="#e5e7eb"
+              strokeDasharray="3 3"
+            />
+            <text
+              x={paddingLeft - 8}
+              y={tick.y + 4}
+              textAnchor="end"
+              fontSize="11"
+              fill="#737373"
+            >
+              {tick.price.toFixed(2)}
+            </text>
+          </g>
+        ))}
         <line
-          x1={padding}
-          x2={width - padding}
-          y1={height - padding - volumeHeight}
-          y2={height - padding - volumeHeight}
+          x1={paddingLeft}
+          x2={width - paddingRight}
+          y1={plotBottom}
+          y2={plotBottom}
           stroke="#e5e7eb"
         />
         {klines.map((item, index) => {
-          const center = padding + index * slot + slot / 2;
+          const center = xCenter(index);
           const color = item.close >= item.open ? "#ef4444" : "#22c55e";
           const highY = yPrice(item.high);
           const lowY = yPrice(item.low);
           const openY = yPrice(item.open);
           const closeY = yPrice(item.close);
           return (
-            <g key={`${item.ts}-${index}`}>
+            <g
+              key={`${item.ts}-${index}`}
+              onMouseEnter={() => setHoveredIndex(index)}
+              onMouseLeave={() => setHoveredIndex(null)}
+            >
+              <rect
+                x={paddingLeft + index * slot}
+                y={paddingTop}
+                width={slot}
+                height={height - paddingTop - paddingBottom}
+                fill="transparent"
+              />
               <line x1={center} x2={center} y1={highY} y2={lowY} stroke={color} />
               <rect
                 x={center - candleWidth / 2}
@@ -89,18 +140,120 @@ function CandlestickChart({ klines }: { klines: Kline[] }) {
                 x={center - candleWidth / 2}
                 y={yVolume(item.volume)}
                 width={candleWidth}
-                height={height - padding - yVolume(item.volume)}
+                height={height - paddingBottom - yVolume(item.volume)}
                 fill={color}
                 opacity={0.45}
               />
             </g>
           );
         })}
-        <text x={padding} y={height - 4} fontSize="11" fill="#737373">
+        {hovered ? (
+          <g pointerEvents="none">
+            <line
+              x1={xCenter(hoveredIndex ?? 0)}
+              x2={xCenter(hoveredIndex ?? 0)}
+              y1={paddingTop}
+              y2={plotBottom}
+              stroke="#94a3b8"
+              strokeDasharray="2 2"
+            />
+            <rect
+              x={Math.min(
+                Math.max(xCenter(hoveredIndex ?? 0) - 72, paddingLeft - 6),
+                width - paddingRight - 148,
+              )}
+              y={paddingTop + 4}
+              width={144}
+              height={94}
+              rx={6}
+              fill="#ffffff"
+              fillOpacity={0.96}
+              stroke="#cbd5e1"
+            />
+            <text
+              x={Math.min(
+                Math.max(xCenter(hoveredIndex ?? 0) - 60, paddingLeft + 4),
+                width - paddingRight - 138,
+              )}
+              y={paddingTop + 20}
+              fontSize="12"
+              fill="#334155"
+            >
+              时间：{new Date(hovered.ts).toLocaleString("zh-CN", { hour12: false })}
+            </text>
+            <text
+              x={Math.min(
+                Math.max(xCenter(hoveredIndex ?? 0) - 60, paddingLeft + 4),
+                width - paddingRight - 138,
+              )}
+              y={paddingTop + 38}
+              fontSize="12"
+              fill="#334155"
+            >
+              开：{hovered.open.toFixed(2)}  高：{hovered.high.toFixed(2)}
+            </text>
+            <text
+              x={Math.min(
+                Math.max(xCenter(hoveredIndex ?? 0) - 60, paddingLeft + 4),
+                width - paddingRight - 138,
+              )}
+              y={paddingTop + 56}
+              fontSize="12"
+              fill="#334155"
+            >
+              低：{hovered.low.toFixed(2)}  收：{hovered.close.toFixed(2)}
+            </text>
+            <text
+              x={Math.min(
+                Math.max(xCenter(hoveredIndex ?? 0) - 60, paddingLeft + 4),
+                width - paddingRight - 138,
+              )}
+              y={paddingTop + 74}
+              fontSize="12"
+              fill="#64748b"
+            >
+              量：{(hovered.volume / 10000).toFixed(1)} 万
+            </text>
+          </g>
+        ) : null}
+        <text x={paddingLeft} y={height - 4} fontSize="11" fill="#737373">
           {klines[0]?.ts.slice(0, 10)}
         </text>
-        <text x={width - 100} y={height - 4} fontSize="11" fill="#737373">
+        <text
+          x={width - paddingRight}
+          y={height - 4}
+          textAnchor="end"
+          fontSize="11"
+          fill="#737373"
+        >
           {klines.at(-1)?.ts.slice(0, 10)}
+        </text>
+        <text
+          x={width / 2}
+          y={height - 4}
+          textAnchor="middle"
+          fontSize="11"
+          fill="#737373"
+        >
+          {klines[Math.floor((klines.length - 1) / 2)]?.ts.slice(0, 10)}
+        </text>
+        <text
+          x={paddingLeft - 6}
+          y={paddingTop - 6}
+          textAnchor="end"
+          fontSize="11"
+          fill="#64748b"
+        >
+          价格
+        </text>
+        <text
+          x={width - paddingRight}
+          y={height - paddingBottom + 10}
+          textAnchor="end"
+          fontSize="11"
+          fill="#64748b"
+        >
+          成交量
         </text>
       </svg>
     </div>

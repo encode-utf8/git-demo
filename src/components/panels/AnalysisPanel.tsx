@@ -5,15 +5,18 @@ import type { AnalysisReport } from "@/lib/shared/types";
 
 interface AnalysisPanelProps {
   reports: AnalysisReport[];
+  loading: boolean;
 }
 
 /** 历史分析时间线面板。 */
-export function AnalysisPanel({ reports }: AnalysisPanelProps) {
+export function AnalysisPanel({ reports, loading }: AnalysisPanelProps) {
   return (
     <div className="rounded-xl border bg-white p-4 shadow-sm">
       <h2 className="text-lg font-semibold">历史分析时间线</h2>
       <div className="mt-3 space-y-4">
-        {reports.length === 0 ? (
+        {loading && reports.length === 0 ? (
+          <p className="text-sm text-muted-foreground">历史报告加载中...</p>
+        ) : reports.length === 0 ? (
           <p className="text-sm text-muted-foreground">暂无历史报告，点击“生成 AI 分析”开始。</p>
         ) : (
           reports.map((report) => (

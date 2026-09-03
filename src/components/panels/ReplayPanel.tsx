@@ -19,12 +19,26 @@ interface ReplayApiPayload<T> {
 }
 
 async function apiFetch<T>(url: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(url, { signal });
-  const payload = (await response.json().catch(() => null)) as ReplayApiPayload<T> | null;
-  if (!payload?.success || payload.data === undefined) {
-    throw new Error(payload?.error?.message ?? "请求失败。");
+  const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8_000);
+  const abortFromParent = () => controller.abort();
+  signal?.addEventListener("abort", abortFromParent);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    const payload = (await response.json().catch(() => null)) as ReplayApiPayload<T> | null;
+    if (!payload?.success || payload.data === undefined) {
+      throw new Error(payload?.error?.message ?? "请求失败。");
+    }
+    return payload.data;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("请求超时，请稍后重试。");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", abortFromParent);
   }
-  return payload.data;
 }
 
 function formatHitRate(value: number): string {
@@ -104,37 +118,53 @@ interface ReplayPanelProps {
 /** 历史复盘与命中率统计面板，仅用于学习，不承诺任何收益。 */
 export function ReplayPanel({ code }: ReplayPanelProps) {
   const [codeInput, setCodeInput] = useState(code ?? "600519");
-  const [queryCode, setQueryCode] = useState(code ?? "600519");
+  const [queryCode, setQueryCode] = useState<string | null>(null);
   const [days, setDays] = useState<number>(30);
+  const [queryDays, setQueryDays] = useState<number>(30);
   const [stats, setStats] = useState<ReplaySummary | null>(null);
   const [timeline, setTimeline] = useState<ReplayTimeline | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadReplay = useCallback(
-    async (code: string, nextDays: number, isActive: () => boolean) => {
-      try {
-        const [statsData, timelineData] = await Promise.all([
-          apiFetch<ReplaySummary>(
+    async (code: string, nextDays: number, isActive: () => boolean, signal?: AbortSignal) => {
+      let lastError: string | null = null;
+      const loadStats = async () => {
+        try {
+          const data = await apiFetch<ReplaySummary>(
             `/api/replay/stats?code=${encodeURIComponent(code)}&days=${nextDays}`,
-          ),
-          apiFetch<ReplayTimeline>(
+            signal,
+          );
+          if (isActive()) {
+            setStats(data);
+          }
+        } catch (nextError) {
+          if (isActive()) {
+            setStats(null);
+            lastError = nextError instanceof Error ? nextError.message : "复盘统计加载失败。";
+          }
+        }
+      };
+      const loadTimeline = async () => {
+        try {
+          const data = await apiFetch<ReplayTimeline>(
             `/api/replay/timeline?code=${encodeURIComponent(code)}&days=${nextDays}`,
-          ),
-        ]);
-        if (!isActive()) {
-          return;
+            signal,
+          );
+          if (isActive()) {
+            setTimeline(data);
+          }
+        } catch (nextError) {
+          if (isActive()) {
+            setTimeline(null);
+            lastError = nextError instanceof Error ? nextError.message : "复盘时间线加载失败。";
+          }
         }
-        setStats(statsData);
-        setTimeline(timelineData);
-      } catch (nextError) {
-        if (!isActive()) {
-          return;
-        }
-        setStats(null);
-        setTimeline(null);
-        setError(nextError instanceof Error ? nextError.message : "复盘数据加载失败。");
-      } finally {
+      };
+
+      await Promise.all([loadStats(), loadTimeline()]);
+      if (isActive()) {
+        setError(lastError);
         if (isActive()) {
           setLoading(false);
         }
@@ -144,15 +174,20 @@ export function ReplayPanel({ code }: ReplayPanelProps) {
   );
 
   useEffect(() => {
+    if (!queryCode) {
+      return;
+    }
     let active = true;
+    const controller = new AbortController();
     const timer = setTimeout(() => {
-      void loadReplay(queryCode, days, () => active);
+      void loadReplay(queryCode, queryDays, () => active, controller.signal);
     }, 0);
     return () => {
       active = false;
       clearTimeout(timer);
+      controller.abort();
     };
-  }, [loadReplay, queryCode, days]);
+  }, [loadReplay, queryCode, queryDays]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -163,6 +198,7 @@ export function ReplayPanel({ code }: ReplayPanelProps) {
     }
     setLoading(true);
     setError(null);
+    setQueryDays(days);
     setQueryCode(nextCode);
   }
 
@@ -188,7 +224,6 @@ export function ReplayPanel({ code }: ReplayPanelProps) {
         <select
           value={days}
           onChange={(event) => {
-            setLoading(true);
             setError(null);
             setDays(Number(event.target.value));
           }}
@@ -208,6 +243,16 @@ export function ReplayPanel({ code }: ReplayPanelProps) {
       {error ? (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
+        </div>
+      ) : null}
+
+      {loading && !stats && !timeline ? (
+        <div
+          className="mb-4 flex items-center gap-2 rounded-lg border bg-muted/20 px-4 py-3 text-sm text-muted-foreground"
+          aria-live="polite"
+        >
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          正在加载复盘数据，请稍候...
         </div>
       ) : null}
 
