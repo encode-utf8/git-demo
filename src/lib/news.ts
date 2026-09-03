@@ -127,6 +127,57 @@ function toIsoDate(value: string | undefined, fallback: Date): string {
   return Number.isNaN(parsed.getTime()) ? fallback.toISOString() : parsed.toISOString();
 }
 
+/** 清洗外部资讯摘要，避免展示乱码、导航文本和超长网页正文。 */
+function cleanExternalSummary(
+  summary: string | undefined,
+  source: string,
+  title: string,
+): string {
+  const normalized = (summary ?? "")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const looksGarbled =
+    /ï¿½|Ã|Â|â€|å|ç|æ|ä¸­å›½|è‚¡ç¥¨/i.test(normalized) ||
+    normalized.includes("| |");
+
+  if (!normalized || normalized.length > 180 || looksGarbled || /Image \d+/i.test(normalized)) {
+    return `${title}。来源：${source || "外部资讯"}，请打开原文查看完整内容。`;
+  }
+
+  return normalized.slice(0, 180);
+}
+
+/** 判断文本是否呈现 UTF-8 被误按 Latin-1/GBK 解码后的典型乱码。 */
+function looksGarbled(value: string): boolean {
+  return (
+    /ï¿½|Ã|Â|â€|å|ç|æ|ä¸­å›½|è‚¡ç¥¨|æ²ª|æ·±/i.test(value) ||
+    /[\u00c0-\u00ff]{3,}/.test(value)
+  );
+}
+
+/** 清洗外部资讯标题，避免展示乱码、导航文本和超长标题。 */
+function cleanExternalTitle(title: string | undefined, source: string): string {
+  const normalized = (title ?? "")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized || normalized.length > 120 || looksGarbled(normalized)) {
+    return source || "外部资讯";
+  }
+  return normalized.slice(0, 120);
+}
+
+/** 对已落库或新抓取的资讯做统一清洗，避免历史脏数据继续展示。 */
+function sanitizeNewsItem(item: NewsItem): NewsItem {
+  const title = cleanExternalTitle(item.title, item.source);
+  return {
+    ...item,
+    title,
+    summary: cleanExternalSummary(item.summary, item.source, title),
+  };
+}
+
 /** 资讯去重键：优先 URL，否则使用“标题 + 来源 + 发布时间”。 */
 function dedupeKey(item: Pick<NewsItem, "url" | "title" | "source" | "published_at">): string {
   const url = item.url.trim();
@@ -220,7 +271,7 @@ async function fetchNewsFromTavily(code: string, stock: Stock): Promise<NewsItem
 
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 4_000);
+    const timer = setTimeout(() => controller.abort(), 2_000);
     const response = await fetch("https://api.tavily.com/search", {
       method: "POST",
       headers: {
@@ -235,14 +286,15 @@ async function fetchNewsFromTavily(code: string, stock: Stock): Promise<NewsItem
       }),
       signal: controller.signal,
     });
-    clearTimeout(timer);
 
     if (!response.ok) {
+      clearTimeout(timer);
       recordExternalCall(false);
       return null;
     }
 
     const payload = (await response.json()) as { results?: TavilyResult[] };
+    clearTimeout(timer);
     recordExternalCall(true);
     const results = payload.results ?? [];
     if (results.length === 0) {
@@ -253,7 +305,8 @@ async function fetchNewsFromTavily(code: string, stock: Stock): Promise<NewsItem
     return results.slice(0, 8).map((item, index) => {
       const title = item.title?.trim() || `${stock.name}相关资讯 ${index + 1}`;
       const url = item.url?.trim() || `https://example.com/news/${code}/${index + 1}`;
-      const summary = (item.content ?? "未获取到正文摘要。").trim();
+      const source = extractSource(url);
+      const summary = cleanExternalSummary(item.content, source, title);
       const publishedAt = toIsoDate(item.published_date, new Date(now - index * 2 * 60 * 60_000));
       const classification = classifyTitle(title);
       const impactDays = classification.impactDays;
@@ -262,9 +315,9 @@ async function fetchNewsFromTavily(code: string, stock: Stock): Promise<NewsItem
         id: `news-${code}-${shortHash(dedupeKey({ url, title, source: extractSource(url), published_at: publishedAt }))}`,
         code,
         title,
-        summary: summary.slice(0, 800),
+        summary,
         url,
-        source: extractSource(url),
+        source,
         published_at: publishedAt,
         fetched_at: new Date(now).toISOString(),
         sentiment: classification.sentiment,
@@ -332,7 +385,7 @@ async function classifyNewsWithDeepSeek(items: NewsItem[], stockName: string): P
 
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12_000);
+    const timer = setTimeout(() => controller.abort(), 4_000);
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
@@ -351,9 +404,9 @@ async function classifyNewsWithDeepSeek(items: NewsItem[], stockName: string): P
       }),
       signal: controller.signal,
     });
-    clearTimeout(timer);
 
     if (!response.ok) {
+      clearTimeout(timer);
       recordExternalCall(false);
       return items;
     }
@@ -361,6 +414,7 @@ async function classifyNewsWithDeepSeek(items: NewsItem[], stockName: string): P
     const payload = (await response.json()) as {
       choices?: Array<{ message?: { content?: string } }>;
     };
+    clearTimeout(timer);
     recordExternalCall(true);
     const content = payload.choices?.[0]?.message?.content;
     if (!content) {
@@ -432,7 +486,7 @@ export async function getNews(code: string, forceRefresh = false): Promise<NewsI
           return false;
         }
         return hasTavilyKey() ? !isDemoNewsItem(item) : true;
-      });
+      }).map(sanitizeNewsItem);
       if (active.length > 0) {
         return active;
       }
@@ -443,7 +497,11 @@ export async function getNews(code: string, forceRefresh = false): Promise<NewsI
     const fallback = buildDeterministicNews(code, stock);
     const candidate = external && external.length > 0 ? external : fallback;
     const deduped = dedupeNewsItems(candidate);
-    const classified = await classifyNewsWithDeepSeek(deduped, stock.name);
+    const classifiedRaw =
+      external && external.length > 0
+        ? await classifyNewsWithDeepSeek(deduped, stock.name)
+        : deduped;
+    const classified = classifiedRaw.map(sanitizeNewsItem);
 
     let news = classified;
     if (forceRefresh) {
@@ -454,7 +512,7 @@ export async function getNews(code: string, forceRefresh = false): Promise<NewsI
           return false;
         }
         return hasTavilyKey() ? !isDemoNewsItem(item) : true;
-      });
+      }).map(sanitizeNewsItem);
       news = dedupeNewsItems([
         ...classified,
         ...savedCandidates,
@@ -464,7 +522,7 @@ export async function getNews(code: string, forceRefresh = false): Promise<NewsI
     for (const item of news) {
       await store.newsItems.insert(item);
     }
-    await saveNewsSnapshot(code, news);
+    void saveNewsSnapshot(code, news);
     return news;
   });
 }

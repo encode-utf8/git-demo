@@ -6,6 +6,7 @@ import { saveAnalysisSnapshot } from "@/lib/r2";
 import { store } from "@/lib/store";
 import type {
   AnalysisReport,
+  Kline,
   MarketQuote,
   NewsItem,
   TechnicalIndicators,
@@ -53,6 +54,7 @@ function buildFallbackReport(
   quote: MarketQuote,
   indicators: TechnicalIndicators,
   news: NewsItem[],
+  klines: Kline[],
 ): string {
   const price = quote.price.toFixed(2);
   const change = quote.change_pct.toFixed(2);
@@ -62,6 +64,45 @@ function buildFallbackReport(
   const ma5 = indicators.ma.ma5?.toFixed(2) ?? "暂无";
   const ma20 = indicators.ma.ma20?.toFixed(2) ?? "暂无";
   const rsi6 = indicators.rsi.rsi6?.toFixed(1) ?? "暂无";
+  const latestKlines = klines.slice(-5);
+  const recentKlineText = latestKlines
+    .map(
+      (item) =>
+        `${item.ts.slice(0, 10)} 收 ${item.close.toFixed(2)}、量 ${(item.volume / 10000).toFixed(1)} 万`,
+    )
+    .join("；");
+  const periodReturn =
+    klines.length >= 2
+      ? (((klines.at(-1)?.close ?? 0) / (klines.at(-2)?.close ?? 1) - 1) * 100).toFixed(2)
+      : "暂无";
+  const avgVolume =
+    latestKlines.length > 0
+      ? latestKlines.reduce((sum, item) => sum + item.volume, 0) / latestKlines.length
+      : 0;
+  const latestVolume = latestKlines.at(-1)?.volume ?? 0;
+  const volumeRatio = avgVolume > 0 ? (latestVolume / avgVolume).toFixed(2) : "暂无";
+  const numericMa5 = Number(ma5);
+  const numericMa20 = Number(ma20);
+  const numericRsi6 = Number(rsi6);
+  const trendText =
+    Number.isFinite(numericMa5) && Number.isFinite(numericMa20)
+      ? numericMa5 > numericMa20
+        ? "MA5 位于 MA20 上方，短期趋势偏强"
+        : "MA5 位于 MA20 下方，短期趋势偏弱"
+      : "均线数据不足";
+  const rsiText =
+    Number.isFinite(numericRsi6)
+      ? numericRsi6 > 70
+        ? "RSI6 偏高，短线情绪偏热"
+        : numericRsi6 < 30
+          ? "RSI6 偏低，短线情绪偏冷"
+          : "RSI6 处于中性区间"
+      : "RSI 数据不足";
+  const topNews = news.slice(0, 5).map((item, index) => {
+    const sentiment =
+      item.sentiment === "positive" ? "利好" : item.sentiment === "negative" ? "利空" : "中性";
+    return `  - ${index + 1}. ${item.title}（${item.source}，${sentiment}，影响约 ${item.impact_days} 天）`;
+  });
 
   return [
     `## ${stockName}（${code}）分析`,
@@ -70,11 +111,17 @@ function buildFallbackReport(
     `- 最新价：${price}，当日涨跌幅 ${change}%。`,
     `- 当前行情来源：${quote.source}，数据获取时间：${new Date(quote.fetched_at).toLocaleString("zh-CN")}。`,
     `- MA5：${ma5}，MA20：${ma20}，RSI6：${rsi6}。`,
+    `- 近 5 个交易日：${recentKlineText || "暂无 K 线数据"}。`,
+    `- 区间涨跌：${periodReturn}%；最新成交量 / 近 5 日均量：${volumeRatio}。`,
+    `- 趋势观察：${trendText}；${rsiText}。`,
     "指标只用于观察价格趋势与强弱，不等同于买卖信号。",
     "",
     "### 消息面",
     `- 共梳理 ${news.length} 条资讯：利好 ${positiveCount} 条、利空 ${negativeCount} 条、中性 ${neutralCount} 条。`,
     "- 每条资讯均带来源与影响周期；短期信息默认观察 7 天，长期信息观察 30 天。",
+    ...(topNews.length > 0
+      ? ["", "近期重点资讯：", ...topNews]
+      : ["", "- 暂无重点资讯。"]),
     "",
     "### 情绪面",
     "- 当前多空信息交织，应结合成交量与价格位置观察市场是否形成一致性预期。",
@@ -92,12 +139,37 @@ function buildFallbackReport(
   ].join("\n");
 }
 
-/** 调用 DeepSeek 生成分析正文；未配置密钥时返回 null。 */
+/** 判断 LLM 输出是否落到了给定股票的具体数据，而不是通用套话。 */
+function isConcreteAnalysis(
+  content: string,
+  code: string,
+  quote: MarketQuote,
+  news: NewsItem[],
+): boolean {
+  const priceTexts = [
+    quote.price.toFixed(2),
+    quote.price.toFixed(1),
+    quote.price.toFixed(0),
+  ];
+  const hasCode = content.includes(code);
+  const hasPrice = priceTexts.some((text) => content.includes(text));
+  const hasNewsReference = news.some(
+    (item) =>
+      (item.source && content.includes(item.source)) ||
+      (item.title && content.includes(item.title.slice(0, 10))),
+  );
+  const numericCount = (content.match(/\d+(?:\.\d+)?/g) ?? []).length;
+  return hasCode && hasPrice && hasNewsReference && numericCount >= 5;
+}
+
+/** 调用 DeepSeek 生成分析正文；未配置密钥或输出套话时返回 null。 */
 async function generateWithDeepSeek(
   prompt: string,
+  code: string,
   quote: MarketQuote,
   indicators: TechnicalIndicators,
   news: NewsItem[],
+  klines: Kline[],
 ): Promise<string | null> {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey || apiKey === "replace-me") {
@@ -108,7 +180,8 @@ async function generateWithDeepSeek(
   const model = process.env.DEEPSEEK_MODEL ?? "deepseek-chat";
   const system = [
     "你是职业投资者视角的教学式分析助手。",
-    "必须基于给定数据，必须引用来源和影响周期，必须给出风险提示。",
+    "必须引用给定股票代码、最新价、涨跌幅、K 线、资讯标题或来源，禁止只输出通用套话。",
+    "必须引用来源和影响周期，必须给出风险提示。",
     "禁止输出“必然涨/必然跌/必涨/必跌/稳赚/包赚”等确定性收益承诺。",
     "使用中文 Markdown 输出，包含：数据面、消息面、情绪面、教学讲解、风险提示、来源与影响周期。",
   ].join("\n");
@@ -116,6 +189,16 @@ async function generateWithDeepSeek(
     "请根据以下数据生成教学式分析报告：",
     `行情：${JSON.stringify(quote)}`,
     `指标：${JSON.stringify(indicators)}`,
+    `近 5 个 K 线：${JSON.stringify(
+      klines.slice(-5).map((item) => ({
+        ts: item.ts,
+        open: item.open,
+        high: item.high,
+        low: item.low,
+        close: item.close,
+        volume: item.volume,
+      })),
+    )}`,
     `资讯：${JSON.stringify(news.map((item) => ({
       id: item.id,
       title: item.title,
@@ -132,7 +215,7 @@ async function generateWithDeepSeek(
 
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 20_000);
+    const timer = setTimeout(() => controller.abort(), 6_000);
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
@@ -150,9 +233,9 @@ async function generateWithDeepSeek(
       }),
       signal: controller.signal,
     });
-    clearTimeout(timer);
 
     if (!response.ok) {
+      clearTimeout(timer);
       recordExternalCall(false);
       return null;
     }
@@ -160,9 +243,10 @@ async function generateWithDeepSeek(
     const payload = (await response.json()) as {
       choices?: Array<{ message?: { content?: string } }>;
     };
+    clearTimeout(timer);
     recordExternalCall(true);
     const content = payload.choices?.[0]?.message?.content?.trim();
-    if (!content || hasForbiddenPromise(content)) {
+    if (!content || hasForbiddenPromise(content) || !isConcreteAnalysis(content, code, quote, news)) {
       return null;
     }
     return content;
@@ -187,12 +271,14 @@ export async function runAnalysis(
     getNews(code),
   ]);
 
-  const fallbackContent = buildFallbackReport(code, stock.name, quote, indicators, news);
+  const fallbackContent = buildFallbackReport(code, stock.name, quote, indicators, news, klines);
   const llmContent = await generateWithDeepSeek(
     prompt ?? "",
+    code,
     quote,
     indicators,
     news,
+    klines,
   );
   const baseContent = llmContent ?? fallbackContent;
   const content = baseContent.includes("来源与影响周期")
