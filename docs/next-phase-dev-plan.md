@@ -9,22 +9,35 @@
 
 ## 1. 当前基线
 
-- P0–P6 / M1–M5 已完成并合并到 `main`，工作区干净。
-- `src/app/page.tsx` 已拆分为 10 个 panel 组件。
+- P0–P6 / M1–M5 已完成并合并到 `main`；P7 的 M6-M8 已完成并合并到 `main`，工作区干净。
+- `src/app/page.tsx` 已拆分为 panel 组件，并接入自选股、历史复盘与数据源面板。
 - `src/lib/shared/types/next-phase.ts` 已冻结 `DataSourceStatus`、`SchedulerJob`、`ChatStreamEvent` 契约。
-- 其中 `ChatStreamEvent` 已使用；`DataSourceStatus`、`SchedulerJob` 尚未接入 API/UI。
+- `ChatStreamEvent`、`DataSourceStatus`、`SchedulerJob` 均已接入 API/UI。
 - 本阶段只在冻结契约基础上做增量开发，不破坏既有 MVP。
+
+### 1.1 P7 完成记录
+
+- 完成日期：2026-09-03。
+- 已完成并合并到 `main`：
+  - N0 公共底座：`feature/p7-base`
+  - N1 自选股池与多股票切换：`feature/p7-watchlist`
+  - N2 历史复盘与命中率统计：`feature/p7-replay`
+  - N3 数据源健康与调度面板：`feature/p7-datasource-scheduler-dashboard`
+  - N4 集成与整体验收：`feature/p7-integration`
+- M6-M8 验收通过；`corepack pnpm typecheck`、`lint`、`build` 均通过。
+- 验收记录：`docs/checklists/07-feature-datasource-scheduler-dashboard.md`、`docs/checklists/08-feature-p7-integration.md`。
+- 待评估候选：N5 港股/美股与多语言资讯、N6 情绪指标与策略回测。
 
 ## 2. 候选功能与优先级
 
-| 编号 | 功能 | 里程碑 | 优先级 | 依赖 | 建议 |
-| --- | --- | --- | --- | --- | --- |
-| N1 | 自选股池与多股票切换 | M6 | 高 | N0 | 并行开发 |
-| N2 | 历史复盘与命中率统计（仅学习） | M7 | 中 | N0 | 并行开发 |
-| N3 | 数据源健康与调度面板 | M8 | 高 | N0 | 并行开发 |
-| N4 | 集成与整体验收 | M6–M8 | 高 | N1+N2+N3 | 串行收口 |
-| N5 | 港股/美股与多语言资讯 | M9 | 低 | 另行评估 | 后续串行 |
-| N6 | 情绪指标与策略回测（仅学习） | M10 | 低 | 另行评估 | 后续串行 |
+| 编号 | 功能 | 里程碑 | 优先级 | 依赖 | 建议 | 状态 |
+| --- | --- | --- | --- | --- | --- | --- |
+| N1 | 自选股池与多股票切换 | M6 | 高 | N0 | 并行开发 | 已完成 |
+| N2 | 历史复盘与命中率统计（仅学习） | M7 | 中 | N0 | 并行开发 | 已完成 |
+| N3 | 数据源健康与调度面板 | M8 | 高 | N0 | 并行开发 | 已完成 |
+| N4 | 集成与整体验收 | M6–M8 | 高 | N1+N2+N3 | 串行收口 | 已完成 |
+| N5 | 港股/美股与多语言资讯 | M9 | 低 | 另行评估 | 后续串行 | 待评估 |
+| N6 | 情绪指标与策略回测（仅学习） | M10 | 低 | 另行评估 | 后续串行 | 待评估 |
 
 ## 3. 串行 + 并行工作流
 
