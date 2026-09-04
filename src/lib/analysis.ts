@@ -9,8 +9,20 @@ import type {
   Kline,
   MarketQuote,
   NewsItem,
+  Stock,
   TechnicalIndicators,
 } from "@/lib/shared/types";
+
+/** 单次 AI 分析的默认超时时间；复杂中文报告需要比普通请求更宽裕的生成窗口。 */
+const DEFAULT_ANALYSIS_TIMEOUT_MS = 45_000;
+
+/** 读取可选环境变量，覆盖 AI 分析超时时间，避免正常报告因超时被回退。 */
+function analysisTimeoutMs(): number {
+  const configured = Number(process.env.DEEPSEEK_ANALYSIS_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured >= 10_000
+    ? configured
+    : DEFAULT_ANALYSIS_TIMEOUT_MS;
+}
 
 /** 生成稳定的报告编号。 */
 function buildReportId(code: string): string {
@@ -107,6 +119,8 @@ function buildFallbackReport(
   return [
     `## ${stockName}（${code}）分析`,
     "",
+    "> 本次未生成 AI 报告，以下为本地数据摘要，仅用于基础盘面核对。",
+    "",
     "### 数据面",
     `- 最新价：${price}，当日涨跌幅 ${change}%。`,
     `- 当前行情来源：${quote.source}，数据获取时间：${new Date(quote.fetched_at).toLocaleString("zh-CN")}。`,
@@ -139,33 +153,71 @@ function buildFallbackReport(
   ].join("\n");
 }
 
+/** 将数字中的千分位、空格与中文标点归一化，避免格式差异造成误判。 */
+function normalizeForMatch(text: string): string {
+  return text.replace(/[,\s，。]/g, "");
+}
+
+/** 判断正文是否出现了给定数值的常见格式化形式。 */
+function includesAnyNumber(content: string, values: number[]): boolean {
+  const normalized = normalizeForMatch(content);
+  return values.some((value) => {
+    if (!Number.isFinite(value)) {
+      return false;
+    }
+    return [value.toFixed(2), value.toFixed(1), value.toFixed(0)].some((candidate) =>
+      normalized.includes(candidate),
+    );
+  });
+}
+
+/** 用标题或摘要片段判断模型是否引用过该条资讯，允许适度改写。 */
+function hasTextOverlap(content: string, text: string): boolean {
+  const normalized = normalizeForMatch(content);
+  const compact = normalizeForMatch(text);
+  if (!compact) {
+    return false;
+  }
+  return [compact.slice(0, 10), compact.slice(0, 6), compact.slice(-6)].some(
+    (snippet) => snippet.length >= 2 && normalized.includes(snippet),
+  );
+}
+
 /** 判断 LLM 输出是否落到了给定股票的具体数据，而不是通用套话。 */
 function isConcreteAnalysis(
   content: string,
   code: string,
+  stockName: string,
   quote: MarketQuote,
   news: NewsItem[],
 ): boolean {
-  const priceTexts = [
-    quote.price.toFixed(2),
-    quote.price.toFixed(1),
-    quote.price.toFixed(0),
-  ];
-  const hasCode = content.includes(code);
-  const hasPrice = priceTexts.some((text) => content.includes(text));
+  const normalized = normalizeForMatch(content);
+  const hasCodeOrName = content.includes(code) || (stockName && content.includes(stockName));
+  if (!hasCodeOrName) {
+    return false;
+  }
+  const hasDataNumber = includesAnyNumber(content, [
+    quote.price,
+    quote.change_pct,
+    quote.open,
+    quote.high,
+    quote.low,
+    quote.prev_close,
+  ]);
   const hasNewsReference = news.some(
     (item) =>
-      (item.source && content.includes(item.source)) ||
-      (item.title && content.includes(item.title.slice(0, 10))),
+      (item.source && normalized.includes(normalizeForMatch(item.source))) ||
+      (item.title && hasTextOverlap(content, item.title)) ||
+      (item.summary && hasTextOverlap(content, item.summary)),
   );
   const numericCount = (content.match(/\d+(?:\.\d+)?/g) ?? []).length;
-  return hasCode && hasPrice && hasNewsReference && numericCount >= 5;
+  return numericCount >= 3 && (hasDataNumber || hasNewsReference);
 }
 
 /** 调用 DeepSeek 生成分析正文；未配置密钥或输出套话时返回 null。 */
 async function generateWithDeepSeek(
   prompt: string,
-  code: string,
+  stock: Stock,
   quote: MarketQuote,
   indicators: TechnicalIndicators,
   news: NewsItem[],
@@ -181,16 +233,18 @@ async function generateWithDeepSeek(
   const system = [
     "你是职业投资者视角的教学式分析助手。",
     "必须引用给定股票代码、最新价、涨跌幅、K 线、资讯标题或来源，禁止只输出通用套话。",
+    "不要只统计利好/利空/中性条数，也不要复述 JSON；必须解释数据之间的因果关系、市场情绪与风险点。",
     "必须引用来源和影响周期，必须给出风险提示。",
     "禁止输出“必然涨/必然跌/必涨/必跌/稳赚/包赚”等确定性收益承诺。",
     "使用中文 Markdown 输出，包含：数据面、消息面、情绪面、教学讲解、风险提示、来源与影响周期。",
   ].join("\n");
   const user = [
     "请根据以下数据生成教学式分析报告：",
+    `股票：${stock.name}（${stock.code}），行业：${stock.industry ?? "未知"}`,
     `行情：${JSON.stringify(quote)}`,
     `指标：${JSON.stringify(indicators)}`,
-    `近 5 个 K 线：${JSON.stringify(
-      klines.slice(-5).map((item) => ({
+    `近 20 个 K 线：${JSON.stringify(
+      klines.slice(-20).map((item) => ({
         ts: item.ts,
         open: item.open,
         high: item.high,
@@ -205,6 +259,7 @@ async function generateWithDeepSeek(
       source: item.source,
       url: item.url,
       published_at: item.published_at,
+      summary: item.summary,
       sentiment: item.sentiment,
       confidence: item.confidence,
       impact_days: item.impact_days,
@@ -215,7 +270,7 @@ async function generateWithDeepSeek(
 
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 6_000);
+    const timer = setTimeout(() => controller.abort(), analysisTimeoutMs());
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
@@ -246,7 +301,11 @@ async function generateWithDeepSeek(
     clearTimeout(timer);
     recordExternalCall(true);
     const content = payload.choices?.[0]?.message?.content?.trim();
-    if (!content || hasForbiddenPromise(content) || !isConcreteAnalysis(content, code, quote, news)) {
+    if (
+      !content ||
+      hasForbiddenPromise(content) ||
+      !isConcreteAnalysis(content, stock.code, stock.name, quote, news)
+    ) {
       return null;
     }
     return content;
@@ -274,7 +333,7 @@ export async function runAnalysis(
   const fallbackContent = buildFallbackReport(code, stock.name, quote, indicators, news, klines);
   const llmContent = await generateWithDeepSeek(
     prompt ?? "",
-    code,
+    stock,
     quote,
     indicators,
     news,
