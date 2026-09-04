@@ -41,10 +41,11 @@ interface ConversationTimeline {
 }
 
 const REQUEST_TIMEOUT_MS = 20_000;
+const ANALYSIS_REQUEST_TIMEOUT_MS = 60_000;
 
-async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
+async function apiFetch<T>(url: string, init?: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, { ...init, signal: controller.signal });
     const payload = (await response.json().catch(() => null)) as {
@@ -268,7 +269,7 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: "请生成当前盘面与资讯分析。" }),
-      });
+      }, ANALYSIS_REQUEST_TIMEOUT_MS);
       setReports((previous) => [report, ...previous.filter((item) => item.id !== report.id)]);
       await loadObservability();
     } catch (nextError) {
