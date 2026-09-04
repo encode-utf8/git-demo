@@ -1,6 +1,8 @@
 // 下一阶段 MVP 底座契约：只新增，不改变既有字段语义。
 // 供数据源状态、调度任务与对话流式事件等后续功能分支引用。
 
+import type { AnalysisReport } from "./models";
+
 /** 数据源可用状态。 */
 export type DataSourceState = "online" | "degraded" | "offline";
 
@@ -52,5 +54,19 @@ export interface ChatStreamEvent {
     sources?: Array<{ title: string; url: string }>;
     riskNote?: string;
     toolCalls?: ChatStreamToolCall[];
+  };
+}
+
+/** AI 分析流式事件类型。 */
+export type AnalysisStreamEventType = "meta" | "delta" | "done" | "error";
+
+/** AI 分析流式响应事件，用于前后端约定 SSE data 字段结构。 */
+export interface AnalysisStreamEvent {
+  type: AnalysisStreamEventType;
+  content?: string;
+  data?: {
+    reportId?: string;
+    message?: string;
+    report?: AnalysisReport;
   };
 }

@@ -10,6 +10,16 @@ const NEWS_TTL_MS = 5 * 60_000;
 const SHORT_IMPACT_DAYS = 7;
 const LONG_IMPACT_DAYS = 30;
 
+/** 部分 A 股的搜索别名，用于缩小 Tavily 查询范围。 */
+const STOCK_SEARCH_ALIASES: Record<string, string[]> = {
+  "688256": ["寒武纪", "Cambricon Technologies", "Cambricon"],
+};
+
+/** 部分 A 股使用更精确的 Tavily 查询表达式。 */
+const STOCK_TAVILY_QUERIES: Record<string, string> = {
+  "688256": '"Cambricon Technologies" "688256"',
+};
+
 /** Tavily 是否已配置真实密钥。 */
 function hasTavilyKey(): boolean {
   const apiKey = process.env.TAVILY_API_KEY;
@@ -116,15 +126,6 @@ function extractSource(url?: string): string {
   } catch {
     return "Tavily";
   }
-}
-
-/** 将可能为空或非法的日期转为可用的 ISO 字符串。 */
-function toIsoDate(value: string | undefined, fallback: Date): string {
-  if (!value) {
-    return fallback.toISOString();
-  }
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? fallback.toISOString() : parsed.toISOString();
 }
 
 /** 清洗外部资讯摘要，避免展示乱码、导航文本和超长网页正文。 */
@@ -262,8 +263,44 @@ interface TavilyResult {
   published_date?: string;
 }
 
+/** 股票名称是否为“股票 600000”这类占位名称。 */
+function isPlaceholderStockName(name: string): boolean {
+  return /^股票\s*\d{6}$/.test(name.trim());
+}
+
+/** 生成 Tavily 查询词，优先使用预设的精确表达式。 */
+function buildTavilyQuery(stock: Stock): string {
+  const preset = STOCK_TAVILY_QUERIES[stock.code];
+  if (preset) {
+    return preset;
+  }
+
+  const name = !isPlaceholderStockName(stock.name) ? stock.name : "";
+  const aliases = STOCK_SEARCH_ALIASES[stock.code] ?? [];
+  const terms = [...new Set([name, ...aliases])].filter(Boolean);
+  return terms.length > 0 ? `${terms.join(" ")} ${stock.code}` : stock.code;
+}
+
+/** 生成用于本地相关性判断的股票关键词。 */
+function buildStockRelevanceTerms(stock: Stock): string[] {
+  const aliases = STOCK_SEARCH_ALIASES[stock.code] ?? [];
+  const name = !isPlaceholderStockName(stock.name) ? stock.name : "";
+  const terms = [...new Set([name, ...aliases])].filter(Boolean);
+  return terms.length > 0 ? terms : [stock.code];
+}
+
+/** 只保留标题、摘要或 URL 中明确包含目标股票关键词的资讯。 */
+function isRelevantTavilyResult(item: TavilyResult, terms: string[]): boolean {
+  const haystack = `${item.title ?? ""} ${item.url ?? ""} ${item.content ?? ""}`.toLowerCase();
+  return terms.some((term) => term.toLowerCase() && haystack.includes(term.toLowerCase()));
+}
+
 /** 调用 Tavily 搜索；未配置密钥时返回 null。 */
-async function fetchNewsFromTavily(code: string, stock: Stock): Promise<NewsItem[] | null> {
+async function fetchNewsFromTavily(
+  code: string,
+  stock: Stock,
+  days = 30,
+): Promise<NewsItem[] | null> {
   const apiKey = process.env.TAVILY_API_KEY;
   if (!apiKey || apiKey === "replace-me") {
     return null;
@@ -271,7 +308,11 @@ async function fetchNewsFromTavily(code: string, stock: Stock): Promise<NewsItem
 
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 2_000);
+    const timer = setTimeout(() => controller.abort(), 10_000);
+    const now = new Date();
+    const start = new Date(now.getTime() - days * 24 * 60 * 60_000);
+    const query = buildTavilyQuery(stock);
+    const relevanceTerms = buildStockRelevanceTerms(stock);
     const response = await fetch("https://api.tavily.com/search", {
       method: "POST",
       headers: {
@@ -279,8 +320,10 @@ async function fetchNewsFromTavily(code: string, stock: Stock): Promise<NewsItem
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        query: `${stock.name} ${code} 公告 业绩 行业 风险`,
-        max_results: 8,
+        query,
+        topic: "news",
+        days,
+        max_results: 12,
         search_depth: "basic",
         include_answer: false,
       }),
@@ -301,13 +344,30 @@ async function fetchNewsFromTavily(code: string, stock: Stock): Promise<NewsItem
       return [];
     }
 
-    const now = Date.now();
-    return results.slice(0, 8).map((item, index) => {
-      const title = item.title?.trim() || `${stock.name}相关资讯 ${index + 1}`;
-      const url = item.url?.trim() || `https://example.com/news/${code}/${index + 1}`;
+    const nowMs = now.getTime();
+    const startMs = start.getTime();
+    const validResults = results.filter((item) => {
+      if (!item.published_date) {
+        return false;
+      }
+      const publishedMs = new Date(item.published_date).getTime();
+      return Number.isFinite(publishedMs) && publishedMs >= startMs && publishedMs <= nowMs;
+    });
+    if (validResults.length === 0) {
+      return [];
+    }
+
+    const relevantResults = validResults.filter((item) => isRelevantTavilyResult(item, relevanceTerms));
+    if (relevantResults.length === 0) {
+      return [];
+    }
+
+    return relevantResults.slice(0, 8).map((item) => {
+      const title = item.title?.trim() || `${stock.name}相关资讯`;
+      const url = item.url?.trim() || `https://example.com/news/${code}`;
       const source = extractSource(url);
       const summary = cleanExternalSummary(item.content, source, title);
-      const publishedAt = toIsoDate(item.published_date, new Date(now - index * 2 * 60 * 60_000));
+      const publishedAt = new Date(item.published_date!).toISOString();
       const classification = classifyTitle(title);
       const impactDays = classification.impactDays;
 
@@ -319,11 +379,11 @@ async function fetchNewsFromTavily(code: string, stock: Stock): Promise<NewsItem
         url,
         source,
         published_at: publishedAt,
-        fetched_at: new Date(now).toISOString(),
+        fetched_at: now.toISOString(),
         sentiment: classification.sentiment,
         confidence: normalizeConfidence(item.score, 0.75),
         impact_days: impactDays,
-        expire_at: new Date(now + impactDays * 24 * 60 * 60_000).toISOString(),
+        expire_at: new Date(nowMs + impactDays * 24 * 60 * 60_000).toISOString(),
         tags: classification.tags,
         status: "active",
         pinned: false,
@@ -524,6 +584,58 @@ export async function getNews(code: string, forceRefresh = false): Promise<NewsI
     }
     void saveNewsSnapshot(code, news);
     return news;
+  });
+}
+
+/** 按时间范围搜索真实资讯；有真实数据时不混入演示降级数据。 */
+export async function searchNews(
+  code: string,
+  days = 30,
+  forceRefresh = false,
+): Promise<NewsItem[]> {
+  const cacheKey = `news:${code}:${days}`;
+  if (forceRefresh) {
+    cacheInvalidatePrefix(cacheKey);
+  }
+
+  return cacheGetOrSet(cacheKey, NEWS_TTL_MS, async () => {
+    const now = Date.now();
+    const since = now - days * 24 * 60 * 60_000;
+    const inRange = (item: NewsItem) => {
+      const publishedAt = new Date(item.published_at).getTime();
+      return (
+        item.status === "active" &&
+        Number.isFinite(publishedAt) &&
+        publishedAt >= since &&
+        new Date(item.expire_at).getTime() >= now &&
+        !isDemoNewsItem(item)
+      );
+    };
+
+    const saved = await store.newsItems.listByCode(code);
+    const savedReal = dedupeNewsItems(saved.filter(inRange).map(sanitizeNewsItem));
+    if (!forceRefresh && savedReal.length > 0) {
+      return savedReal;
+    }
+
+    if (!hasTavilyKey()) {
+      return savedReal;
+    }
+
+    const stock = await import("@/lib/market-data").then((module) => module.getStock(code));
+    const external = await fetchNewsFromTavily(code, stock, days);
+    const real = external && external.length > 0 ? external : [];
+    const deduped = dedupeNewsItems(real.length > 0 ? real : savedReal);
+    const classified = deduped.length > 0
+      ? await classifyNewsWithDeepSeek(deduped, stock.name)
+      : deduped;
+    const cleaned = dedupeNewsItems(classified.map(sanitizeNewsItem)).filter(inRange);
+
+    for (const item of cleaned) {
+      await store.newsItems.insert(item);
+    }
+    void saveNewsSnapshot(code, cleaned);
+    return cleaned;
   });
 }
 

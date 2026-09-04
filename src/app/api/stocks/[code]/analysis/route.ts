@@ -3,6 +3,7 @@ import { runAnalysis } from "@/lib/analysis";
 import { normalizeStockCode } from "@/lib/market";
 
 import type { NextRequest } from "next/server";
+import type { NewsItem } from "@/lib/shared/types";
 
 type RouteContext = { params: Promise<{ code: string }> };
 
@@ -15,8 +16,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
   }
 
   try {
-    const body = (await request.json().catch(() => ({}))) as { prompt?: string };
-    const report = await runAnalysis(code, body.prompt);
+    const body = (await request.json().catch(() => ({}))) as {
+      prompt?: string;
+      news?: NewsItem[];
+    };
+    const report = await runAnalysis(code, body.prompt, body.news ?? []);
     return apiOk(report, { status: 202 });
   } catch (error) {
     return apiUnexpected(error);

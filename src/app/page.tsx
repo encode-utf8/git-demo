@@ -23,6 +23,7 @@ import { WatchlistPanel } from "@/components/panels/WatchlistPanel";
 import type {
   AdjustType,
   AnalysisReport,
+  AnalysisStreamEvent,
   ChatStreamEvent,
   Conversation,
   JobRun,
@@ -41,7 +42,6 @@ interface ConversationTimeline {
 }
 
 const REQUEST_TIMEOUT_MS = 20_000;
-const ANALYSIS_REQUEST_TIMEOUT_MS = 60_000;
 
 async function apiFetch<T>(url: string, init?: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const controller = new AbortController();
@@ -75,6 +75,7 @@ export default function Home() {
   const [klines, setKlines] = useState<Kline[]>([]);
   const [indicators, setIndicators] = useState<TechnicalIndicators | null>(null);
   const [news, setNews] = useState<NewsItem[]>([]);
+  const [newsRangeDays, setNewsRangeDays] = useState(30);
   const [reports, setReports] = useState<AnalysisReport[]>([]);
   const [newsLoading, setNewsLoading] = useState(false);
   const [reportsLoading, setReportsLoading] = useState(false);
@@ -117,36 +118,56 @@ export default function Home() {
     }
   }, []);
 
-  /** 异步加载资讯与历史报告，不阻塞盘面主数据展示；返回资讯供分析流程使用。 */
-  const loadNewsAndReports = useCallback(async (nextCode: string): Promise<NewsItem[]> => {
-    setNewsLoading(true);
+  /** 仅加载历史报告，资讯改为按需搜索，避免查询股票时一并触发。 */
+  const loadReports = useCallback(async (nextCode: string): Promise<void> => {
     setReportsLoading(true);
-    const results = await Promise.allSettled([
-      apiFetch<NewsItem[]>(`/api/stocks/${encodeURIComponent(nextCode)}/news`),
-      apiFetch<AnalysisReport[]>(`/api/stocks/${encodeURIComponent(nextCode)}/reports`),
-    ]);
-    if (activeCodeRef.current !== nextCode) {
-      setNewsLoading(false);
-      setReportsLoading(false);
-      return [];
+    try {
+      const data = await apiFetch<AnalysisReport[]>(
+        `/api/stocks/${encodeURIComponent(nextCode)}/reports`,
+      );
+      if (activeCodeRef.current === nextCode) {
+        setReports(data);
+      }
+    } catch {
+      if (activeCodeRef.current === nextCode) {
+        setReports([]);
+      }
+    } finally {
+      if (activeCodeRef.current === nextCode) {
+        setReportsLoading(false);
+      }
     }
-
-    const [newsResult, reportsResult] = results;
-    const nextNews = newsResult.status === "fulfilled" ? newsResult.value : [];
-    if (newsResult.status === "fulfilled") {
-      setNews(nextNews);
-    } else {
-      setNews([]);
-    }
-    if (reportsResult.status === "fulfilled") {
-      setReports(reportsResult.value);
-    } else {
-      setReports([]);
-    }
-    setNewsLoading(false);
-    setReportsLoading(false);
-    return nextNews;
   }, []);
+
+  /** 按当前时间范围搜索资讯，与股票查询解耦。 */
+  const loadNewsByRange = useCallback(async (nextCode: string, days: number): Promise<void> => {
+    setNewsLoading(true);
+    setError(null);
+    try {
+      const data = await apiFetch<NewsItem[]>(
+        `/api/stocks/${encodeURIComponent(nextCode)}/news?days=${days}&refresh=1`,
+      );
+      if (activeCodeRef.current === nextCode) {
+        setNews(data);
+      }
+    } catch (nextError) {
+      if (activeCodeRef.current === nextCode) {
+        setNews([]);
+        setError(nextError instanceof Error ? nextError.message : "资讯搜索失败。");
+      }
+    } finally {
+      if (activeCodeRef.current === nextCode) {
+        setNewsLoading(false);
+      }
+    }
+  }, []);
+
+  const handleNewsSearch = useCallback(async () => {
+    if (!code || newsLoading) {
+      return;
+    }
+    await loadNewsByRange(code, newsRangeDays);
+  }, [code, newsLoading, newsRangeDays, loadNewsByRange]);
 
   const loadChart = useCallback(
     async (nextCode: string, nextPeriod: KlinePeriod, nextAdjust: AdjustType) => {
@@ -193,14 +214,14 @@ export default function Home() {
         setLoading(false);
         void loadConversations(nextCode);
         void loadObservability();
-        void loadNewsAndReports(nextCode);
+        void loadReports(nextCode);
       } catch (nextError) {
         setError(nextError instanceof Error ? nextError.message : "股票查询失败。");
       } finally {
         setLoading(false);
       }
     },
-    [loadConversations, loadNewsAndReports, loadObservability],
+    [loadConversations, loadReports, loadObservability],
   );
 
   /** 自选股切换：直接复用主查询链路，确保盘面、资讯、对话全链路一致。 */
@@ -260,20 +281,77 @@ export default function Home() {
     }
     setAnalysisLoading(true);
     setError(null);
+    const draftId = `analysis-stream-${Date.now()}`;
+    const draftReport: AnalysisReport = {
+      id: draftId,
+      code,
+      created_at: new Date().toISOString(),
+      data_snapshot: null,
+      news_refs: [],
+      content: "",
+      risk_note: "",
+    };
+
     try {
-      const latestNews = await loadNewsAndReports(code);
-      if (latestNews.length === 0) {
-        throw new Error("当前没有可用资讯，暂时无法生成 AI 分析。");
-      }
-      const report = await apiFetch<AnalysisReport>(`/api/stocks/${code}/analysis`, {
+      setReports((previous) => [draftReport, ...previous.filter((item) => item.id !== draftId)]);
+
+      const response = await fetch(`/api/stocks/${encodeURIComponent(code)}/analysis/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: "请生成当前盘面与资讯分析。" }),
-      }, ANALYSIS_REQUEST_TIMEOUT_MS);
-      setReports((previous) => [report, ...previous.filter((item) => item.id !== report.id)]);
+        body: JSON.stringify({ prompt: "请生成当前盘面与资讯分析。", news }),
+      });
+      if (!response.ok || !response.body) {
+        throw new Error("分析接口响应异常。");
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      const handleEvent = (raw: string) => {
+        const dataLine = raw.split("\n").find((line) => line.startsWith("data: "));
+        if (!dataLine) {
+          return;
+        }
+        const event = JSON.parse(dataLine.slice(6)) as AnalysisStreamEvent;
+
+        if (event.type === "delta" && event.content) {
+          setReports((previous) =>
+            previous.map((item) =>
+              item.id === draftId
+                ? { ...item, content: item.content + event.content }
+                : item,
+            ),
+          );
+        } else if (event.type === "done" && event.data?.report) {
+          setReports((previous) =>
+            previous.map((item) => (item.id === draftId ? event.data?.report ?? item : item)),
+          );
+        } else if (event.type === "error") {
+          throw new Error(event.data?.message ?? "分析生成失败。");
+        }
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) {
+          break;
+        }
+        buffer += decoder.decode(value, { stream: true });
+        const blocks = buffer.split("\n\n");
+        buffer = blocks.pop() ?? "";
+        for (const block of blocks) {
+          handleEvent(block);
+        }
+      }
+      if (buffer.trim()) {
+        handleEvent(buffer);
+      }
+
       await loadObservability();
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "分析生成失败。");
+      setReports((previous) => previous.filter((item) => item.id !== draftId));
     } finally {
       setAnalysisLoading(false);
     }
@@ -304,7 +382,11 @@ export default function Home() {
       });
       await loadObservability();
       if (code) {
-        setNews(await apiFetch<NewsItem[]>(`/api/stocks/${code}/news`));
+        setNews(
+          await apiFetch<NewsItem[]>(
+            `/api/stocks/${encodeURIComponent(code)}/news?days=${newsRangeDays}&refresh=1`,
+          ),
+        );
       }
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "清理失败。");
@@ -477,6 +559,9 @@ export default function Home() {
                 news={news}
                 loading={newsLoading}
                 analysisLoading={analysisLoading}
+                newsRangeDays={newsRangeDays}
+                onRangeChange={setNewsRangeDays}
+                onSearch={() => void handleNewsSearch()}
                 onGenerateAnalysis={() => void handleAnalysis()}
               />
               <AnalysisPanel reports={reports} loading={reportsLoading} />

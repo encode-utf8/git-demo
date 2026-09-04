@@ -202,3 +202,110 @@ corepack pnpm build
 - 完成日期：2026-09-04
 - 结果：typecheck、lint、build 全部通过；已恢复长超时并放宽输出校验，AI 报告不再因格式差异误回退。
 - 遗留事项：真实点击验收需在有 DeepSeek 密钥的本机启动服务后确认模型输出确实被采用。
+## AI 分析模型配置与流式响应修复（2026-09-04，已提交）
+
+- 关联文档：`docs/spec.md` FR-05、`docs/checklists/02-feature-ai-analysis.md`
+- 目标：修复 `DEEPSEEK_MODEL` 配置错误导致的空回复，并为“生成 AI 分析”提供流式响应。
+
+### 验收项
+
+- [x] 确认 `deepseek-v4-pro` 返回空内容，`deepseek-chat` 正常
+- [x] 本地 `.env` 的 `DEEPSEEK_MODEL` 改为 `deepseek-chat`
+- [x] 新增 `/api/stocks/:code/analysis/stream` SSE 接口
+- [x] 后端 `streamAnalysis` 边生成边返回 delta，结束返回持久化报告
+- [x] 前端生成分析时实时累加内容，完成后替换为正式报告
+- [x] 复用统一分析报告构建与持久化逻辑
+- [x] `corepack pnpm typecheck` 通过
+- [x] `corepack pnpm lint` 通过
+- [x] `corepack pnpm build` 通过
+- [x] 未提交真实密钥，仅本地修改 `.env`
+
+### 验证方式
+
+- `corepack pnpm typecheck && corepack pnpm lint && corepack pnpm build`
+- 启动服务后点击“生成 AI 分析”，应看到报告内容逐步出现，并最终写入历史时间线。
+## 历史分析与资讯面板 UI 改造（2026-09-04，已提交）
+
+- 关联文档：`docs/spec.md` FR-05
+- 目标：优化“历史分析时间线”与“资讯与影响周期”的展示方式，支持 Markdown 与等高等滚动。
+
+### 验收项
+
+- [x] 资讯与影响周期改为固定高度、每页 4 条的分页功能区
+- [x] 历史分析时间线改为摘要卡片，展示时间、引用数和前几句内容
+- [x] 点击历史报告卡片弹出浮窗，展示完整报告
+- [x] DeepSeek 返回的 Markdown 使用 `react-markdown` + `remark-gfm` 渲染
+- [x] 历史分析内容区与左侧资讯区等高，内容不足时可上下滚动
+- [x] 新增 Markdown 基础样式，支持标题、列表、引用、代码块、表格等
+- [x] `corepack pnpm typecheck` 通过
+- [x] `corepack pnpm lint` 通过
+- [x] `corepack pnpm build` 通过
+- [x] 已提交仓库
+
+### 验证方式
+
+- `corepack pnpm typecheck && corepack pnpm lint && corepack pnpm build`
+- 启动服务后查询股票，观察左侧资讯分页与右侧历史分析摘要卡片，点击卡片确认 Markdown 浮窗可滚动展示。
+## 周期内 AI 分析与复盘时间线 UI 调整（2026-09-04，已提交）
+
+- 目标：将右侧标题改为“周期内 AI 分析”，并把复盘时间线改成摘要卡片 + 弹窗详情。
+
+### 验收项
+
+- [x] “资讯与影响周期”右侧面板标题改为“周期内 AI 分析”
+- [x] 周期内 AI 分析与资讯区等高，内容不足时可上下滚动
+- [x] 历史复盘时间线查询后仅展示摘要卡片与内容前几句
+- [x] 点击复盘时间线卡片弹出浮窗展示具体信息
+- [x] AI 分析详情使用 Markdown 渲染，对话详情保留原始换行
+- [x] `corepack pnpm typecheck` 通过
+- [x] `corepack pnpm lint` 通过
+- [x] `corepack pnpm build` 通过
+- [x] 已提交仓库
+
+### 验证方式
+
+- `corepack pnpm typecheck && corepack pnpm lint && corepack pnpm build`
+- 查询股票后检查右侧标题与等高滚动；在“历史复盘与命中率统计”查询时间范围，点击时间线卡片查看弹窗详情。
+## 资讯按需搜索与 AI 分析范围联动（2026-09-04，已提交）
+
+- 目标：真实资讯不混入演示数据；资讯搜索与股票查询解耦；AI 分析按当前资讯范围灵活组合。
+
+### 验收项
+
+- [x] 新增 `searchNews(code, days)` 按时间范围搜索真实资讯
+- [x] 有真实资讯时过滤掉“演示资讯源”等降级数据
+- [x] 资讯接口支持 7/14/30/90/180/365 天范围筛选
+- [x] 查询股票不再自动抓取资讯，资讯改为带选项的搜索按钮
+- [x] 未搜索资讯时可直接生成纯股票数据分析
+- [x] 生成 AI 分析时把当前页面的资讯数组传给分析接口
+- [x] 分析提示词根据是否有资讯动态生成，灵活结合当前资讯范围
+- [x] `corepack pnpm typecheck` 通过
+- [x] `corepack pnpm lint` 通过
+- [x] `corepack pnpm build` 通过
+- [x] 已提交仓库
+
+### 验证方式
+
+- `corepack pnpm typecheck && corepack pnpm lint && corepack pnpm build`
+- 查询股票后不点击搜索直接生成 AI 分析，应只基于股票数据分析；选择不同时间范围搜索后再分析，应结合该范围资讯。
+
+## 资讯日期范围与相关性调优（2026-09-05，已提交）
+
+- 目标：修复不同时间范围返回相同资讯的问题，并过滤掉与目标股票无关的外部噪音资讯。
+
+### 验收项
+
+- [x] Tavily 使用 `topic: "news"` 与 `days`，不再同时传 `start_date/end_date` 触发 400
+- [x] 按 `published_date` 做本地二次日期过滤，缺日期或非法日期不再伪造发布时间
+- [x] 强制刷新时优先采用本次真实结果，避免旧缓存回填
+- [x] 为 688256 配置寒武纪搜索别名与精确 Tavily 查询表达式
+- [x] 按标题、摘要、URL 过滤不含目标股票关键词的资讯
+- [x] `corepack pnpm typecheck` 通过
+- [x] `corepack pnpm lint` 通过
+- [x] `corepack pnpm build` 通过
+- [x] 已提交仓库
+
+### 验证方式
+
+- `corepack pnpm typecheck && corepack pnpm lint && corepack pnpm build`
+- 查询 688256 并分别选择 7/14/30/90/180/365 天，应看到结果条数与发布日期变化；一个月资讯不应再包含 MongoDB、药明康德、中国海油等无关公司。

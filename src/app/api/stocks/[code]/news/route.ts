@@ -1,12 +1,12 @@
 import { apiFail, apiOk } from "@/lib/api-response";
 import { normalizeStockCode } from "@/lib/market";
-import { getNews } from "@/lib/news";
+import { searchNews } from "@/lib/news";
 
 import type { NextRequest } from "next/server";
 
 type RouteContext = { params: Promise<{ code: string }> };
 
-// GET /api/stocks/:code/news：已抓取资讯。
+// GET /api/stocks/:code/news：按时间范围搜索资讯。
 export async function GET(request: NextRequest, context: RouteContext) {
   const rawCode = (await context.params).code;
   const code = normalizeStockCode(rawCode);
@@ -15,5 +15,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
   }
 
   const forceRefresh = request.nextUrl.searchParams.get("refresh") === "1";
-  return apiOk(await getNews(code, forceRefresh));
+  const rawDays = Number(request.nextUrl.searchParams.get("days") ?? 30);
+  const allowedDays = [7, 14, 30, 90, 180, 365];
+  const days = allowedDays.includes(rawDays) ? rawDays : 30;
+  return apiOk(await searchNews(code, days, forceRefresh));
 }

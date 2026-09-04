@@ -1,10 +1,10 @@
 // AI 分析编排：读取行情/指标/资讯后生成教学式报告，并持久化到 store 与 R2 快照。
 import { recordExternalCall, recordTaskRun } from "@/lib/observability";
 import { getIndicators, getKlines, getMarketQuote, getStock } from "@/lib/market-data";
-import { getNews } from "@/lib/news";
 import { saveAnalysisSnapshot } from "@/lib/r2";
 import { store } from "@/lib/store";
 import type {
+  AnalysisStreamEvent,
   AnalysisReport,
   Kline,
   MarketQuote,
@@ -214,22 +214,29 @@ function isConcreteAnalysis(
   return numericCount >= 3 && (hasDataNumber || hasNewsReference);
 }
 
-/** 调用 DeepSeek 生成分析正文；未配置密钥或输出套话时返回 null。 */
-async function generateWithDeepSeek(
-  prompt: string,
+/** 判断 DeepSeek 是否已配置真实密钥。 */
+function deepSeekConfigured(): boolean {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  return Boolean(apiKey && apiKey !== "replace-me");
+}
+
+function deepSeekBaseUrl(): string {
+  return (process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com").replace(/\/$/, "");
+}
+
+function deepSeekModel(): string {
+  return process.env.DEEPSEEK_MODEL ?? "deepseek-chat";
+}
+
+/** 构建分析报告的模型提示词，流式与非流式共用同一份数据。 */
+function buildAnalysisMessages(
   stock: Stock,
   quote: MarketQuote,
   indicators: TechnicalIndicators,
   news: NewsItem[],
   klines: Kline[],
-): Promise<string | null> {
-  const apiKey = process.env.DEEPSEEK_API_KEY;
-  if (!apiKey || apiKey === "replace-me") {
-    return null;
-  }
-
-  const baseUrl = (process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com").replace(/\/$/, "");
-  const model = process.env.DEEPSEEK_MODEL ?? "deepseek-chat";
+  prompt: string,
+): { system: string; user: string } {
   const system = [
     "你是职业投资者视角的教学式分析助手。",
     "必须引用给定股票代码、最新价、涨跌幅、K 线、资讯标题或来源，禁止只输出通用套话。",
@@ -253,32 +260,52 @@ async function generateWithDeepSeek(
         volume: item.volume,
       })),
     )}`,
-    `资讯：${JSON.stringify(news.map((item) => ({
-      id: item.id,
-      title: item.title,
-      source: item.source,
-      url: item.url,
-      published_at: item.published_at,
-      summary: item.summary,
-      sentiment: item.sentiment,
-      confidence: item.confidence,
-      impact_days: item.impact_days,
-      tags: item.tags,
-    })))}`,
+    news.length > 0
+      ? `资讯范围：本次共 ${news.length} 条，请结合这些资讯做消息面与情绪面分析。\n资讯：${JSON.stringify(news.map((item) => ({
+          id: item.id,
+          title: item.title,
+          source: item.source,
+          url: item.url,
+          published_at: item.published_at,
+          summary: item.summary,
+          sentiment: item.sentiment,
+          confidence: item.confidence,
+          impact_days: item.impact_days,
+          tags: item.tags,
+        })))}`
+      : "资讯范围：本次未提供资讯，请仅基于行情、K 线和指标分析，并在消息面明确说明本次未检索资讯。",
     `用户补充：${prompt || "无"}`,
   ].join("\n");
+
+  return { system, user };
+}
+
+/** 调用 DeepSeek 生成分析正文；未配置密钥或输出套话时返回 null。 */
+async function generateWithDeepSeek(
+  prompt: string,
+  stock: Stock,
+  quote: MarketQuote,
+  indicators: TechnicalIndicators,
+  news: NewsItem[],
+  klines: Kline[],
+): Promise<string | null> {
+  if (!deepSeekConfigured()) {
+    return null;
+  }
+
+  const { system, user } = buildAnalysisMessages(stock, quote, indicators, news, klines, prompt);
 
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), analysisTimeoutMs());
-    const response = await fetch(`${baseUrl}/chat/completions`, {
+    const response = await fetch(`${deepSeekBaseUrl()}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
       },
       body: JSON.stringify({
-        model,
+        model: deepSeekModel(),
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
@@ -315,42 +342,132 @@ async function generateWithDeepSeek(
   }
 }
 
-/** 触发一次 AI 分析，返回持久化后的报告。 */
-export async function runAnalysis(
-  code: string,
-  prompt?: string,
-): Promise<AnalysisReport> {
-  recordTaskRun("analysis");
+interface DeepSeekStreamResponse {
+  choices?: Array<{
+    delta?: { content?: string | null };
+    finish_reason?: string | null;
+  }>;
+}
 
-  const [stock, quote, indicators, klines, news] = await Promise.all([
-    getStock(code),
-    getMarketQuote(code),
-    getIndicators(code, "day"),
-    getKlines(code, "day", "qfq", 120),
-    getNews(code),
-  ]);
+/** 流式请求 DeepSeek，逐块产出正文内容。 */
+async function* streamDeepSeekAnalysis(messages: {
+  system: string;
+  user: string;
+}): AsyncGenerator<string> {
+  if (!deepSeekConfigured()) {
+    return;
+  }
 
-  const fallbackContent = buildFallbackReport(code, stock.name, quote, indicators, news, klines);
-  const llmContent = await generateWithDeepSeek(
-    prompt ?? "",
-    stock,
-    quote,
-    indicators,
-    news,
-    klines,
-  );
-  const baseContent = llmContent ?? fallbackContent;
-  const content = baseContent.includes("来源与影响周期")
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), analysisTimeoutMs());
+
+  try {
+    const response = await fetch(`${deepSeekBaseUrl()}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: deepSeekModel(),
+        messages: [
+          { role: "system", content: messages.system },
+          { role: "user", content: messages.user },
+        ],
+        temperature: 0.4,
+        max_tokens: 3000,
+        stream: true,
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok || !response.body) {
+      throw new Error(`DeepSeek 响应异常：${response.status}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) {
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split("\n\n");
+      buffer = blocks.pop() ?? "";
+
+      for (const block of blocks) {
+        for (const line of block.split("\n")) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith("data:")) {
+            continue;
+          }
+          const payload = trimmed.slice(5).trim();
+          if (!payload || payload === "[DONE]") {
+            continue;
+          }
+          const event = JSON.parse(payload) as DeepSeekStreamResponse;
+          const content = event.choices?.[0]?.delta?.content;
+          if (content) {
+            yield content;
+          }
+        }
+      }
+    }
+
+    if (buffer.trim()) {
+      const trimmed = buffer.trim();
+      if (trimmed.startsWith("data:")) {
+        const payload = trimmed.slice(5).trim();
+        if (payload && payload !== "[DONE]") {
+          const event = JSON.parse(payload) as DeepSeekStreamResponse;
+          const content = event.choices?.[0]?.delta?.content;
+          if (content) {
+            yield content;
+          }
+        }
+      }
+    }
+
+    recordExternalCall(true);
+  } catch (error) {
+    recordExternalCall(false);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** 组装报告正文；AI 输出未自带来源清单时补全来源与影响周期。 */
+function finalizeContent(baseContent: string, news: NewsItem[]): string {
+  if (news.length === 0) {
+    return baseContent;
+  }
+  return baseContent.includes("来源与影响周期")
     ? baseContent
     : `${baseContent}\n\n${buildSourceSection(news)}`;
+}
+
+/** 构建统一分析报告对象。 */
+function buildReport(
+  code: string,
+  quote: MarketQuote,
+  indicators: TechnicalIndicators,
+  klines: Kline[],
+  news: NewsItem[],
+  content: string,
+  reportId = buildReportId(code),
+): AnalysisReport {
   const riskNote = [
     "本报告仅供学习参考，不构成任何投资建议。",
     "市场存在不确定性，请勿将任何分析结论理解为必然上涨或下跌的承诺。",
     "数据可能存在延迟或缺失，用户应独立核验并自行承担决策风险。",
   ].join(" ");
 
-  const report: AnalysisReport = {
-    id: buildReportId(code),
+  return {
+    id: reportId,
     code,
     created_at: new Date().toISOString(),
     data_snapshot: {
@@ -374,13 +491,100 @@ export async function runAnalysis(
     content,
     risk_note: riskNote,
   };
+}
 
+/** 保存报告快照并写入 store。 */
+async function persistReport(report: AnalysisReport): Promise<AnalysisReport> {
   const r2Key = await saveAnalysisSnapshot(report);
   const persistedReport = r2Key
     ? { ...report, data_snapshot: { ...report.data_snapshot, r2_key: r2Key } }
     : report;
   await store.analysisReports.insert(persistedReport);
   return persistedReport;
+}
+
+/** 触发一次 AI 分析，返回持久化后的报告。 */
+export async function runAnalysis(
+  code: string,
+  prompt?: string,
+  news: NewsItem[] = [],
+): Promise<AnalysisReport> {
+  recordTaskRun("analysis");
+
+  const [stock, quote, indicators, klines] = await Promise.all([
+    getStock(code),
+    getMarketQuote(code),
+    getIndicators(code, "day"),
+    getKlines(code, "day", "qfq", 120),
+  ]);
+
+  const fallbackContent = buildFallbackReport(code, stock.name, quote, indicators, news, klines);
+  const llmContent = await generateWithDeepSeek(
+    prompt ?? "",
+    stock,
+    quote,
+    indicators,
+    news,
+    klines,
+  );
+  const baseContent = llmContent ?? fallbackContent;
+  const content = finalizeContent(baseContent, news);
+  const report = buildReport(code, quote, indicators, klines, news, content);
+  return persistReport(report);
+}
+
+/** 流式触发一次 AI 分析，边生成边返回分块，并在结束时返回持久化报告。 */
+export async function* streamAnalysis(
+  code: string,
+  prompt?: string,
+  news: NewsItem[] = [],
+): AsyncGenerator<AnalysisStreamEvent> {
+  recordTaskRun("analysis");
+
+  const [stock, quote, indicators, klines] = await Promise.all([
+    getStock(code),
+    getMarketQuote(code),
+    getIndicators(code, "day"),
+    getKlines(code, "day", "qfq", 120),
+  ]);
+
+  const reportId = buildReportId(code);
+  yield { type: "meta", data: { reportId } };
+
+  const fallbackContent = buildFallbackReport(code, stock.name, quote, indicators, news, klines);
+  const messages = buildAnalysisMessages(stock, quote, indicators, news, klines, prompt ?? "");
+  let llmContent: string | null = null;
+  let streamedContent = "";
+
+  if (deepSeekConfigured()) {
+    try {
+      for await (const chunk of streamDeepSeekAnalysis(messages)) {
+        streamedContent += chunk;
+        yield { type: "delta", content: chunk };
+      }
+      if (
+        streamedContent.trim() &&
+        !hasForbiddenPromise(streamedContent) &&
+        isConcreteAnalysis(streamedContent, stock.code, stock.name, quote, news)
+      ) {
+        llmContent = streamedContent;
+      }
+    } catch {
+      llmContent = null;
+    }
+  }
+
+  const baseContent = llmContent ?? fallbackContent;
+  const content = finalizeContent(baseContent, news);
+
+  if (!llmContent) {
+    yield { type: "delta", content: content };
+  }
+
+  const report = await persistReport(
+    buildReport(code, quote, indicators, klines, news, content, reportId),
+  );
+  yield { type: "done", data: { report } };
 }
 
 /** 获取历史报告时间线。 */
