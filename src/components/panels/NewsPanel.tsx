@@ -65,7 +65,7 @@ export function NewsPanel({
           {loading ? "搜索中..." : "搜索资讯"}
         </Button>
       </div>
-      <div className="min-h-0 flex-1 space-y-3 overflow-hidden">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
         {loading && news.length === 0 ? (
           <p className="text-sm text-muted-foreground">资讯加载中...</p>
         ) : news.length === 0 ? (
